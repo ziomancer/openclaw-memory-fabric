@@ -214,6 +214,7 @@ export const dispatchTelegramMessage = async ({
                   archivedAnswerPreviews.push({
                     messageId: preview.messageId,
                     textSnapshot: preview.textSnapshot,
+                    deleteIfUnused: true,
                   });
                 }
               : undefined,
@@ -265,16 +266,17 @@ export const dispatchTelegramMessage = async ({
     lane.lastPartialText = "";
     lane.hasStreamedMessage = false;
   };
-  const rotateAnswerLaneForNewAssistantMessage = () => {
+  const rotateAnswerLaneForNewAssistantMessage = async () => {
     if (answerLane.hasStreamedMessage) {
-      const previewMessageId = answerLane.stream?.messageId();
-      // Only archive previews that still need a matching final text update.
-      // Once a preview has already been finalized, archiving it here causes
-      // cleanup to delete a user-visible final message on later media-only turns.
+      // Materialize the current streamed draft into a permanent message
+      // so it remains visible across tool boundaries.
+      const materializedId = await answerLane.stream?.materialize?.();
+      const previewMessageId = materializedId ?? answerLane.stream?.messageId();
       if (typeof previewMessageId === "number" && !finalizedPreviewByLane.answer) {
         archivedAnswerPreviews.push({
           messageId: previewMessageId,
           textSnapshot: answerLane.lastPartialText,
+          deleteIfUnused: false,
         });
       }
       answerLane.stream?.forceNewMessage();
@@ -306,14 +308,14 @@ export const dispatchTelegramMessage = async ({
     lane.lastPartialText = text;
     laneStream.update(text);
   };
-  const ingestDraftLaneSegments = (text: string | undefined) => {
+  const ingestDraftLaneSegments = async (text: string | undefined) => {
     const split = splitTextIntoLaneSegments(text);
     const hasAnswerSegment = split.segments.some((segment) => segment.lane === "answer");
     if (hasAnswerSegment && finalizedPreviewByLane.answer) {
       // Some providers can emit the first partial of a new assistant message before
       // onAssistantMessageStart() arrives. Rotate preemptively so we do not edit
       // the previously finalized preview message with the next message's text.
-      rotateAnswerLaneForNewAssistantMessage();
+      await rotateAnswerLaneForNewAssistantMessage();
       skipNextAnswerMessageStartRotation = true;
     }
     for (const segment of split.segments) {
@@ -606,10 +608,12 @@ export const dispatchTelegramMessage = async ({
         disableBlockStreaming,
         onPartialReply:
           answerLane.stream || reasoningLane.stream
-            ? (payload) => ingestDraftLaneSegments(payload.text)
+            ? async (payload) => {
+                await ingestDraftLaneSegments(payload.text);
+              }
             : undefined,
         onReasoningStream: reasoningLane.stream
-          ? (payload) => {
+          ? async (payload) => {
               // Split between reasoning blocks only when the next reasoning
               // stream starts. Splitting at reasoning-end can orphan the active
               // preview and cause duplicate reasoning sends on reasoning final.
@@ -618,7 +622,7 @@ export const dispatchTelegramMessage = async ({
                 resetDraftLaneState(reasoningLane);
                 splitReasoningOnNextStream = false;
               }
-              ingestDraftLaneSegments(payload.text);
+              await ingestDraftLaneSegments(payload.text);
             }
           : undefined,
         onAssistantMessageStart: answerLane.stream
@@ -628,7 +632,7 @@ export const dispatchTelegramMessage = async ({
                 skipNextAnswerMessageStartRotation = false;
                 return;
               }
-              rotateAnswerLaneForNewAssistantMessage();
+              await rotateAnswerLaneForNewAssistantMessage();
             }
           : undefined,
         onReasoningEnd: reasoningLane.stream
@@ -660,7 +664,14 @@ export const dispatchTelegramMessage = async ({
       if (!stream) {
         continue;
       }
-      const shouldClear = !finalizedPreviewByLane[laneState.laneName];
+      // Don't clear (delete) the stream if: (a) it was finalized, or
+      // (b) boundary-finalized archived previews exist (content was already
+      // delivered as permanent messages via sendPayload in the final step).
+      const hasBoundaryFinalizedPreviews =
+        laneState.laneName === "answer" &&
+        archivedAnswerPreviews.some((p) => p.deleteIfUnused === false);
+      const shouldClear =
+        !finalizedPreviewByLane[laneState.laneName] && !hasBoundaryFinalizedPreviews;
       const existing = streamCleanupStates.get(stream);
       if (!existing) {
         streamCleanupStates.set(stream, { shouldClear });
@@ -675,6 +686,9 @@ export const dispatchTelegramMessage = async ({
       }
     }
     for (const archivedPreview of archivedAnswerPreviews) {
+      if (archivedPreview.deleteIfUnused === false) {
+        continue;
+      }
       try {
         await bot.api.deleteMessage(chatId, archivedPreview.messageId);
       } catch (err) {

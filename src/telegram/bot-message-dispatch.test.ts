@@ -422,6 +422,31 @@ describe("dispatchTelegramMessage draft streaming", () => {
     },
   );
 
+  it("materializes boundary preview and keeps it when no matching final arrives", async () => {
+    const answerDraftStream = createDraftStream(999);
+    answerDraftStream.materialize.mockResolvedValue(4321);
+    const reasoningDraftStream = createDraftStream();
+    createTelegramDraftStream
+      .mockImplementationOnce(() => answerDraftStream)
+      .mockImplementationOnce(() => reasoningDraftStream);
+    dispatchReplyWithBufferedBlockDispatcher.mockImplementation(async ({ replyOptions }) => {
+      await replyOptions?.onPartialReply?.({ text: "Before tool boundary" });
+      await replyOptions?.onAssistantMessageStart?.();
+      return { queuedFinal: false };
+    });
+
+    const bot = createBot();
+    await dispatchWithContext({ context: createContext(), streamMode: "partial", bot });
+
+    expect(answerDraftStream.materialize).toHaveBeenCalledTimes(1);
+    expect(answerDraftStream.forceNewMessage).toHaveBeenCalledTimes(1);
+    expect(answerDraftStream.clear).not.toHaveBeenCalled();
+    const deleteMessageCalls = (
+      bot.api as unknown as { deleteMessage: { mock: { calls: unknown[][] } } }
+    ).deleteMessage.mock.calls;
+    expect(deleteMessageCalls).not.toContainEqual([123, 4321]);
+  });
+
   it("does not force new message on first assistant message start", async () => {
     const draftStream = createDraftStream(999);
     createTelegramDraftStream.mockReturnValue(draftStream);
