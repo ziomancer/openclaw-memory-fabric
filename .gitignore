@@ -121,3 +121,8 @@ dist/protocol.schema.json
 
 # Synthing
 **/.stfolder/
+
+# Local shared-memory import/export working files
+*.ndjson
+imports/
+exports/
