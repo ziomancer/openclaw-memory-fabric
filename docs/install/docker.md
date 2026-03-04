@@ -147,7 +147,7 @@ Running on a VPS? See [Hetzner (Docker VPS)](/install/hetzner).
 
 ### Use a remote image (skip local build)
 
-Official pre-built images are published at:
+Official upstream pre-built images are published at:
 
 - [GitHub Container Registry package](https://github.com/openclaw/openclaw/pkgs/container/openclaw)
 
@@ -170,7 +170,7 @@ The docker image now publishes OCI base-image annotations (sha256 is an example)
 
 - `org.opencontainers.image.base.name=docker.io/library/node:22-bookworm`
 - `org.opencontainers.image.base.digest=sha256:cd7bcd2e7a1e6f72052feb023c7f6b722205d3fcab7bbcbd2d1bfdab10b1e935`
-- `org.opencontainers.image.source=https://github.com/openclaw/openclaw`
+- `org.opencontainers.image.source=https://github.com/ziomancer/openclaw`
 - `org.opencontainers.image.url=https://openclaw.ai`
 - `org.opencontainers.image.documentation=https://docs.openclaw.ai/install/docker`
 - `org.opencontainers.image.licenses=MIT`
@@ -206,7 +206,7 @@ time; it does not replace the compose/setup workflow.
 For easier day-to-day Docker management, install `ClawDock`:
 
 ```bash
-mkdir -p ~/.clawdock && curl -sL https://raw.githubusercontent.com/openclaw/openclaw/main/scripts/shell-helpers/clawdock-helpers.sh -o ~/.clawdock/clawdock-helpers.sh
+mkdir -p ~/.clawdock && curl -sL https://raw.githubusercontent.com/ziomancer/openclaw/main/scripts/shell-helpers/clawdock-helpers.sh -o ~/.clawdock/clawdock-helpers.sh
 ```
 
 **Add to your shell config (zsh):**
@@ -217,7 +217,7 @@ echo 'source ~/.clawdock/clawdock-helpers.sh' >> ~/.zshrc && source ~/.zshrc
 
 Then use `clawdock-start`, `clawdock-stop`, `clawdock-dashboard`, etc. Run `clawdock-help` for all commands.
 
-See [`ClawDock` Helper README](https://github.com/openclaw/openclaw/blob/main/scripts/shell-helpers/README.md) for details.
+See [`ClawDock` Helper README](https://github.com/ziomancer/openclaw/blob/main/scripts/shell-helpers/README.md) for details.
 
 ### Manual flow (compose)
 
@@ -796,7 +796,7 @@ Example:
 
 ## Troubleshooting
 
-- Image missing: build with [`scripts/sandbox-setup.sh`](https://github.com/openclaw/openclaw/blob/main/scripts/sandbox-setup.sh) or set `agents.defaults.sandbox.docker.image`.
+- Image missing: build with [`scripts/sandbox-setup.sh`](https://github.com/ziomancer/openclaw/blob/main/scripts/sandbox-setup.sh) or set `agents.defaults.sandbox.docker.image`.
 - Container not running: it will auto-create per session on demand.
 - Permission errors in sandbox: set `docker.user` to a UID:GID that matches your
   mounted workspace ownership (or chown the workspace folder).

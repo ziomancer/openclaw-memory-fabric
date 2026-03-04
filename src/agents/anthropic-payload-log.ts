@@ -7,6 +7,7 @@ import { createSubsystemLogger } from "../logging/subsystem.js";
 import { resolveUserPath } from "../utils.js";
 import { parseBooleanValue } from "../utils/boolean.js";
 import { safeJsonStringify } from "../utils/safe-json.js";
+import { sanitizePayloadForLogging } from "./payload-log-redaction.js";
 import { getQueuedFileWriter, type QueuedFileWriter } from "./queued-file-writer.js";
 
 type PayloadLogStage = "request" | "usage";
@@ -135,11 +136,15 @@ export function createAnthropicPayloadLogger(params: {
         return streamFn(model, context, options);
       }
       const nextOnPayload = (payload: unknown) => {
+        // Redact structured secrets before writing debug payloads. Transcript-bearing
+        // content can still appear semantically here; docs warn against enabling this
+        // logger in environments where raw prompts are sensitive.
+        const sanitizedPayload = sanitizePayloadForLogging(payload);
         record({
           ...base,
           ts: new Date().toISOString(),
           stage: "request",
-          payload,
+          payload: sanitizedPayload,
           payloadDigest: digest(payload),
         });
         options?.onPayload?.(payload);

@@ -35,6 +35,11 @@ OpenClaw exposes two agent-facing tools for these Markdown files:
 - `memory_search` — semantic recall over indexed snippets.
 - `memory_get` — targeted read of a specific Markdown file/line range.
 
+Those tools are read-only. In normal OpenClaw agent sessions, writing memory still
+uses the standard file tools (`write` / `edit`) against `MEMORY.md` or
+`memory/YYYY-MM-DD.md`; there is no normal-agent `memory_write` tool or per-file
+tool such as `memory_2026_03_03_md`.
+
 `memory_get` now **degrades gracefully when a file doesn't exist** (for example,
 today's daily log before the first write). Both the builtin manager and the QMD
 backend return `{ text: "", path }` instead of throwing `ENOENT`, so agents can
@@ -45,6 +50,8 @@ tool call in try/catch logic.
 
 - Decisions, preferences, and durable facts go to `MEMORY.md`.
 - Day-to-day notes and running context go to `memory/YYYY-MM-DD.md`.
+- In normal OpenClaw sessions, update those files with `write` / `edit`, not
+  `memory_search` / `memory_get`.
 - If someone says "remember this," write it down (do not keep it in RAM).
 - This area is still evolving. It helps to remind the model to store memories; it will know what to do.
 - If you want something to stick, **ask the bot to write it** into memory.

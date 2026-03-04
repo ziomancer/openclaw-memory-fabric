@@ -4,6 +4,28 @@ function isOpenAiCompletionsModel(model: Model<Api>): model is Model<"openai-com
   return model.api === "openai-completions";
 }
 
+function isLoopbackHost(host: string): boolean {
+  return host === "127.0.0.1" || host === "localhost" || host === "0.0.0.0" || host === "::1";
+}
+
+function isLmStudioEndpoint(provider: string, baseUrl: string): boolean {
+  if (provider.trim().toLowerCase() === "lmstudio") {
+    return true;
+  }
+
+  try {
+    const url = new URL(baseUrl);
+    return isLoopbackHost(url.hostname.toLowerCase()) && url.port === "1234";
+  } catch {
+    return /(?:127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\]):1234/i.test(baseUrl);
+  }
+}
+
+function isQwen3FamilyModel(model: Model<Api>): boolean {
+  const haystack = `${model.id} ${model.name}`.toLowerCase();
+  return haystack.includes("qwen3");
+}
+
 /**
  * Returns true only for endpoints that are confirmed to be native OpenAI
  * infrastructure and therefore accept the `developer` message role.
@@ -52,28 +74,39 @@ export function normalizeModelCompat(model: Model<Api>): Model<Api> {
     return model;
   }
 
+  const compat = model.compat ?? undefined;
+  const compatPatch: NonNullable<typeof compat> = {};
+
+  if (isLmStudioEndpoint(model.provider, baseUrl) && isQwen3FamilyModel(model)) {
+    // LM Studio's OpenAI-compatible chat-completions path expects Qwen-family
+    // models to use `max_tokens` and Qwen's enable_thinking flag shape.
+    if (compat?.maxTokensField === undefined) {
+      compatPatch.maxTokensField = "max_tokens";
+    }
+    if (compat?.thinkingFormat === undefined) {
+      compatPatch.thinkingFormat = "qwen";
+    }
+  }
+
   // The `developer` message role is an OpenAI-native convention. All other
   // openai-completions backends (proxies, Qwen, GLM, DeepSeek, Kimi, etc.)
   // only recognise `system`. Force supportsDeveloperRole=false for any model
   // whose baseUrl is not a known native OpenAI endpoint, unless the caller
   // has already pinned the value explicitly.
-  const compat = model.compat ?? undefined;
-  if (compat?.supportsDeveloperRole === false) {
-    return model;
-  }
   // When baseUrl is empty the pi-ai library defaults to api.openai.com, so
   // leave compat unchanged and let the existing default behaviour apply.
   // Note: an explicit supportsDeveloperRole: true is intentionally overridden
   // here for non-native endpoints — those backends would return a 400 if we
   // sent `developer`, so safety takes precedence over the caller's hint.
   const needsForce = baseUrl ? !isOpenAINativeEndpoint(baseUrl) : false;
-  if (!needsForce) {
+  if (compat?.supportsDeveloperRole !== false && needsForce) {
+    compatPatch.supportsDeveloperRole = false;
+  }
+
+  if (Object.keys(compatPatch).length === 0) {
     return model;
   }
 
   // Return a new object — do not mutate the caller's model reference.
-  return {
-    ...model,
-    compat: compat ? { ...compat, supportsDeveloperRole: false } : { supportsDeveloperRole: false },
-  } as typeof model;
+  return { ...model, compat: compat ? { ...compat, ...compatPatch } : compatPatch } as typeof model;
 }

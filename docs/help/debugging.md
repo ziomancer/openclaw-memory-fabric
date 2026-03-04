@@ -133,6 +133,25 @@ Default file:
 
 `~/.openclaw/logs/raw-stream.jsonl`
 
+Warning: this file can contain transcript-bearing model events. OpenClaw redacts structured secrets before write, but the semantic transcript/prompt content still remains visible for debugging.
+
+Implementation note: the shared redaction path for these debug logs lives in `src/agents/payload-log-redaction.ts` and uses the structured-secret patterns from `src/logging/redact.ts`.
+
+### Anthropic payload logging
+
+For Anthropic request debugging, you can capture request payload snapshots:
+
+```bash
+OPENCLAW_ANTHROPIC_PAYLOAD_LOG=1
+OPENCLAW_ANTHROPIC_PAYLOAD_LOG_FILE=~/.openclaw/logs/anthropic-payload.jsonl
+```
+
+Default file:
+
+`~/.openclaw/logs/anthropic-payload.jsonl`
+
+Warning: payload snapshots can include transcript-bearing prompts. OpenClaw redacts structured secrets before write, but the remaining prompt/transcript content is still sensitive local data.
+
 ## Raw chunk logging (pi-mono)
 
 To capture **raw OpenAI-compat chunks** before they are parsed into blocks,

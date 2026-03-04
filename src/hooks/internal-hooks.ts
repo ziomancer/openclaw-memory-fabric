@@ -104,9 +104,9 @@ export type MessageTranscribedHookContext = {
   to?: string;
   /** Original raw message body (e.g., "🎤 [Audio]") */
   body?: string;
-  /** Enriched body shown to the agent, including transcript */
+  /** Enriched body shown to the agent, including transcript. Treat as sensitive. */
   bodyForAgent?: string;
-  /** The transcribed text from audio */
+  /** The transcribed text from audio. Treat as sensitive. */
   transcript: string;
   /** Unix timestamp when the message was received */
   timestamp?: number;
@@ -126,9 +126,9 @@ export type MessageTranscribedHookContext = {
   provider?: string;
   /** Surface name */
   surface?: string;
-  /** Path to the media file that was transcribed */
+  /** Path to the media file that was transcribed. Treat as sensitive. */
   mediaPath?: string;
-  /** MIME type of the media */
+  /** MIME type of the media. Treat as media metadata. */
   mediaType?: string;
 };
 
@@ -145,9 +145,9 @@ export type MessagePreprocessedHookContext = {
   to?: string;
   /** Original raw message body */
   body?: string;
-  /** Fully enriched body shown to the agent (transcripts, image descriptions, link summaries) */
+  /** Fully enriched body shown to the agent (transcripts, image descriptions, link summaries). Treat as sensitive. */
   bodyForAgent?: string;
-  /** Transcribed audio text, if the message contained audio */
+  /** Transcribed audio text, if the message contained audio. Treat as sensitive. */
   transcript?: string;
   /** Unix timestamp when the message was received */
   timestamp?: number;
@@ -167,9 +167,9 @@ export type MessagePreprocessedHookContext = {
   provider?: string;
   /** Surface name */
   surface?: string;
-  /** Path to the media file, if present */
+  /** Path to the media file, if present. Treat as sensitive. */
   mediaPath?: string;
-  /** MIME type of the media, if present */
+  /** MIME type of the media, if present. Treat as media metadata. */
   mediaType?: string;
   /** Whether this message was sent in a group/channel context */
   isGroup?: boolean;

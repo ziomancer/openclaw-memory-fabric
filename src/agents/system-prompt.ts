@@ -45,9 +45,17 @@ function buildMemorySection(params: {
   if (!params.availableTools.has("memory_search") && !params.availableTools.has("memory_get")) {
     return [];
   }
+  const hasMemoryWriteTools =
+    params.availableTools.has("write") || params.availableTools.has("edit");
   const lines = [
     "## Memory Recall",
     "Before answering anything about prior work, decisions, dates, people, preferences, or todos: run memory_search on MEMORY.md + memory/*.md; then use memory_get to pull only the needed lines. If low confidence after search, say you checked.",
+    "memory_search and memory_get are recall-only tools; they never write or append memory.",
+    "Do not invent per-file memory tool names such as memory_2026_03_03_md.",
+    hasMemoryWriteTools
+      ? "To write memory in normal OpenClaw sessions, use write/edit on MEMORY.md or memory/YYYY-MM-DD.md."
+      : "Memory writing is unavailable in this session; do not invent a write-capable memory tool, and say memory writing is unavailable if asked to store something.",
+    "memory/imports/YYYY-MM-DD.md is shared-memory writeback output, not a dedicated agent tool.",
   ];
   if (params.citationsMode === "off") {
     lines.push(

@@ -68,18 +68,18 @@ ditto -c -k --keepParent apps/macos/.build/release/OpenClaw.app.dSYM dist/OpenCl
 Use the release note generator so Sparkle renders formatted HTML notes:
 
 ```bash
-SPARKLE_PRIVATE_KEY_FILE=/path/to/ed25519-private-key scripts/make_appcast.sh dist/OpenClaw-2026.3.2.zip https://raw.githubusercontent.com/openclaw/openclaw/main/appcast.xml
+SPARKLE_PRIVATE_KEY_FILE=/path/to/ed25519-private-key scripts/make_appcast.sh dist/OpenClaw-2026.3.2.zip https://raw.githubusercontent.com/ziomancer/openclaw/main/appcast.xml
 ```
 
-Generates HTML release notes from `CHANGELOG.md` (via [`scripts/changelog-to-html.sh`](https://github.com/openclaw/openclaw/blob/main/scripts/changelog-to-html.sh)) and embeds them in the appcast entry.
+Generates HTML release notes from `CHANGELOG.md` (via [`scripts/changelog-to-html.sh`](https://github.com/ziomancer/openclaw/blob/main/scripts/changelog-to-html.sh)) and embeds them in the appcast entry.
 Commit the updated `appcast.xml` alongside the release assets (zip + dSYM) when publishing.
 
 ## Publish & verify
 
 - Upload `OpenClaw-2026.3.2.zip` (and `OpenClaw-2026.3.2.dSYM.zip`) to the GitHub release for tag `v2026.3.2`.
-- Ensure the raw appcast URL matches the baked feed: `https://raw.githubusercontent.com/openclaw/openclaw/main/appcast.xml`.
+- Ensure the raw appcast URL matches the baked feed: `https://raw.githubusercontent.com/ziomancer/openclaw/main/appcast.xml`.
 - Sanity checks:
-  - `curl -I https://raw.githubusercontent.com/openclaw/openclaw/main/appcast.xml` returns 200.
+  - `curl -I https://raw.githubusercontent.com/ziomancer/openclaw/main/appcast.xml` returns 200.
   - `curl -I <enclosure url>` returns 200 after assets upload.
   - On a previous public build, run “Check for Updates…” from the About tab and verify Sparkle installs the new build cleanly.
 
