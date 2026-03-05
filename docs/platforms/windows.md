@@ -187,7 +187,7 @@ systemctl --user status
 Follow the Linux Getting Started flow inside WSL:
 
 ```bash
-git clone https://github.com/ziomancer/openclaw.git
+git clone https://github.com/openclaw/openclaw.git
 cd openclaw
 pnpm install
 pnpm ui:build # auto-installs UI deps on first run

@@ -51,9 +51,7 @@ type HelperInputFile = {
 
 type SanitizationRunner = typeof runEmbeddedPiAgent;
 
-function resolveHelperModel(params: {
-  cfg: OpenClawConfig;
-}): { provider: string; model: string } {
+function resolveHelperModel(params: { cfg: OpenClawConfig }): { provider: string; model: string } {
   const resolvedConfig = resolveSessionSanitizationConfig(params.cfg);
   const rawModel = resolveAgentModelPrimaryValue(resolvedConfig.model);
   if (!rawModel) {
@@ -85,7 +83,7 @@ function resolveHelperPrompt(mode: SessionMemoryChildMode): string {
       "Mode: recall.",
       "Read `mode.json`, `summary-candidates.jsonl`, and `raw-window.jsonl` when present.",
       "Return only the strict recall JSON object.",
-      "Prefer source=\"raw\" only when the raw window materially informed the answer.",
+      'Prefer source="raw" only when the raw window materially informed the answer.',
     ].join("\n");
   }
   return [
@@ -96,10 +94,7 @@ function resolveHelperPrompt(mode: SessionMemoryChildMode): string {
   ].join("\n");
 }
 
-function parseHelperResponse<T>(
-  mode: SessionMemoryChildMode,
-  text: string,
-): T {
+function parseHelperResponse<T>(mode: SessionMemoryChildMode, text: string): T {
   const trimmed = text.trim();
   if (!trimmed) {
     throw new Error(`session sanitization ${mode} returned empty output`);
@@ -119,7 +114,9 @@ function parseHelperResponse<T>(
   return sessionMemorySignalResultSchema.parse(parsed) as T;
 }
 
-function extractPayloadText(payloads: Array<{ text?: string; isError?: boolean }> | undefined): string {
+function extractPayloadText(
+  payloads: Array<{ text?: string; isError?: boolean }> | undefined,
+): string {
   const chunks = (payloads ?? [])
     .filter((payload) => !payload.isError && typeof payload.text === "string")
     .map((payload) => payload.text?.trim() ?? "")
@@ -133,6 +130,7 @@ export async function runSessionSanitizationHelper<T>(params: {
   mode: SessionMemoryChildMode;
   files: HelperInputFile[];
   timeoutMs?: number;
+  lane?: string;
   runner?: SanitizationRunner;
 }): Promise<T> {
   const availability = resolveSessionSanitizationAvailability({
@@ -170,6 +168,7 @@ export async function runSessionSanitizationHelper<T>(params: {
       sessionId,
       sessionKey: helperSessionKey,
       agentId: params.agentId,
+      lane: params.lane,
       trigger: "memory",
       sessionFile,
       workspaceDir,
@@ -201,8 +200,4 @@ export async function runSessionSanitizationHelper<T>(params: {
 }
 
 export type { HelperInputFile, SanitizationRunner };
-export type {
-  SessionMemoryRecallChildResult,
-  SessionMemorySignalResult,
-  SessionMemoryWriteResult,
-};
+export type { SessionMemoryRecallChildResult, SessionMemorySignalResult, SessionMemoryWriteResult };

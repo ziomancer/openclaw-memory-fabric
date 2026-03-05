@@ -11,11 +11,11 @@ import { resolveChannelModelOverride } from "../../channels/model-overrides.js";
 import { type OpenClawConfig, loadConfig } from "../../config/config.js";
 import { deriveInboundMessageHookContext } from "../../hooks/message-hook-mappers.js";
 import { applyLinkUnderstanding } from "../../link-understanding/apply.js";
+import { applyMediaUnderstanding } from "../../media-understanding/apply.js";
 import {
   buildAutomaticSessionMemoryPrompt,
   queueSessionSanitizationWrite,
 } from "../../memory/session-sanitization/service.js";
-import { applyMediaUnderstanding } from "../../media-understanding/apply.js";
 import { defaultRuntime } from "../../runtime.js";
 import { resolveCommandAuthorization } from "../command-auth.js";
 import type { MsgContext } from "../templating.js";
@@ -32,6 +32,8 @@ import { applyResetModelOverride } from "./session-reset-model.js";
 import { initSessionState } from "./session.js";
 import { stageSandboxMedia } from "./stage-sandbox-media.js";
 import { createTypingController } from "./typing.js";
+
+const SESSION_SANITIZATION_WRITE_LANE = "background:session-sanitization-write";
 
 function mergeSkillFilters(channelFilter?: string[], agentFilter?: string[]): string[] | undefined {
   const normalize = (list?: string[]) => {
@@ -184,6 +186,7 @@ export async function getReplyFromConfig(
       agentId,
       sessionId,
       canonical: canonicalInbound,
+      helperDeps: { lane: SESSION_SANITIZATION_WRITE_LANE },
     });
   }
 

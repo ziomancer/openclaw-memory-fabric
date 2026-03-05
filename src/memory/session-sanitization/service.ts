@@ -1,7 +1,7 @@
-import type { CanonicalInboundMessageHookContext } from "../../hooks/message-hook-mappers.js";
 import type { OpenClawConfig } from "../../config/config.js";
-import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { fireAndForgetHook } from "../../hooks/fire-and-forget.js";
+import type { CanonicalInboundMessageHookContext } from "../../hooks/message-hook-mappers.js";
+import { createSubsystemLogger } from "../../logging/subsystem.js";
 import {
   resolveSessionSanitizationAvailability,
   resolveSessionSanitizationConfig,
@@ -32,6 +32,7 @@ const warnedUnavailableAgents = new Set<string>();
 type HelperDeps = {
   runner?: SanitizationRunner;
   now?: () => number;
+  lane?: string;
 };
 
 function nowIso(now: number): string {
@@ -112,12 +113,7 @@ function lexicalScore(query: string, entry: SessionMemorySummaryEntry): number {
   if (!normalizedQuery) {
     return 0;
   }
-  const haystack = [
-    entry.contextNote,
-    ...entry.decisions,
-    ...entry.actionItems,
-    ...entry.entities,
-  ]
+  const haystack = [entry.contextNote, ...entry.decisions, ...entry.actionItems, ...entry.entities]
     .map((value) => normalizeText(value).toLowerCase())
     .filter(Boolean)
     .join("\n");
@@ -326,6 +322,7 @@ export async function writeTranscriptTurnToSessionMemory(params: {
       cfg: params.cfg,
       agentId: params.agentId,
       mode: "write",
+      lane: params.helperDeps?.lane,
       runner: params.helperDeps?.runner,
       files: [
         {
@@ -439,10 +436,12 @@ export async function recallSessionMemory(params: {
     };
   }
   const rawByMessageId = new Map(
-    (await readSessionMemoryRawEntries({
-      agentId: params.agentId,
-      sessionId: params.sessionId,
-    })).map(({ entry }) => [entry.messageId, entry] as const),
+    (
+      await readSessionMemoryRawEntries({
+        agentId: params.agentId,
+        sessionId: params.sessionId,
+      })
+    ).map(({ entry }) => [entry.messageId, entry] as const),
   );
   const rawWindow = matchedSummaries
     .map((entry) => rawByMessageId.get(entry.messageId))
@@ -452,6 +451,7 @@ export async function recallSessionMemory(params: {
     cfg: params.cfg,
     agentId: params.agentId,
     mode: "recall",
+    lane: params.helperDeps?.lane,
     runner: params.helperDeps?.runner,
     files: [
       {
@@ -536,38 +536,67 @@ export async function signalSessionMemory(params: {
   if (summaries.length === 0) {
     return { mode: "signal", relevant: [] };
   }
-  const rawEntries = (await readSessionMemoryRawEntries({
-    agentId: params.agentId,
-    sessionId: params.sessionId,
-  }))
+  const rawEntries = (
+    await readSessionMemoryRawEntries({
+      agentId: params.agentId,
+      sessionId: params.sessionId,
+    })
+  )
     .map(({ entry }) => entry)
     .filter((entry) => summaries.some((summary) => summary.messageId === entry.messageId))
     .slice(0, limit);
 
-  return await runSessionSanitizationHelper<SessionMemorySignalResult>({
-    cfg: params.cfg,
-    agentId: params.agentId,
-    mode: "signal",
-    runner: params.helperDeps?.runner,
-    files: [
-      {
-        relativePath: "mode.json",
-        content: JSON.stringify({ mode: "signal", query, limit }, null, 2),
-      },
-      {
-        relativePath: "recent-summary.jsonl",
-        content: buildJsonLines(summaries),
-      },
-      ...(rawEntries.length > 0
-        ? [
-            {
-              relativePath: "recent-raw.jsonl",
-              content: buildJsonLines(rawEntries),
-            },
-          ]
-        : []),
-    ],
-  });
+  try {
+    return await runSessionSanitizationHelper<SessionMemorySignalResult>({
+      cfg: params.cfg,
+      agentId: params.agentId,
+      mode: "signal",
+      lane: params.helperDeps?.lane,
+      runner: params.helperDeps?.runner,
+      files: [
+        {
+          relativePath: "mode.json",
+          content: JSON.stringify({ mode: "signal", query, limit }, null, 2),
+        },
+        {
+          relativePath: "recent-summary.jsonl",
+          content: buildJsonLines(summaries),
+        },
+        ...(rawEntries.length > 0
+          ? [
+              {
+                relativePath: "recent-raw.jsonl",
+                content: buildJsonLines(rawEntries),
+              },
+            ]
+          : []),
+      ],
+    });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    try {
+      await appendSessionMemoryAuditEntry({
+        agentId: params.agentId,
+        sessionId: params.sessionId,
+        entry: {
+          event: "write_failed",
+          timestamp: nowIso(now),
+          reason: `signal helper failed: ${reason}`,
+        },
+      });
+    } catch (auditError) {
+      log.warn("session memory signal audit write failed", {
+        agentId: params.agentId,
+        sessionId: params.sessionId,
+        error: auditError instanceof Error ? auditError.message : String(auditError),
+      });
+    }
+    return {
+      mode: "signal",
+      relevant: [],
+      discarded: "signal helper failed — degraded gracefully",
+    };
+  }
 }
 
 export async function buildAutomaticSessionMemoryPrompt(params: {
