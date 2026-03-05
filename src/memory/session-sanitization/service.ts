@@ -161,9 +161,14 @@ function computeSummaryDensity(entry: SessionMemorySummaryEntry): number {
 function normalizeRecallConfidence(params: {
   child: SessionMemoryRecallChildResult;
   summariesById: Map<string, SessionMemorySummaryEntry>;
+  verifiedRawMessageIds: Set<string>;
   now: number;
 }): SessionMemoryConfidence {
-  if (params.child.source === "raw" && params.child.usedRawMessageIds.length >= 1) {
+  if (
+    params.child.source === "raw" &&
+    params.child.usedRawMessageIds.length >= 1 &&
+    params.child.usedRawMessageIds.some((id) => params.verifiedRawMessageIds.has(id))
+  ) {
     return "high";
   }
   if (params.child.source === "summary" && params.child.matchedSummaryIds.length >= 1) {
@@ -485,6 +490,7 @@ export async function recallSessionMemory(params: {
   }
 
   const summariesById = new Map(matchedSummaries.map((entry) => [entry.messageId, entry]));
+  const verifiedRawMessageIds = new Set(rawWindow.map((entry) => entry.messageId));
   return {
     mode: "recall",
     query,
@@ -492,6 +498,7 @@ export async function recallSessionMemory(params: {
     confidence: normalizeRecallConfidence({
       child,
       summariesById,
+      verifiedRawMessageIds,
       now,
     }),
     source: child.source,

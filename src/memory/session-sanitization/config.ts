@@ -1,9 +1,12 @@
+import { resolveSandboxRuntimeStatus } from "../../agents/sandbox/runtime-status.js";
 import { parseDurationMs } from "../../cli/parse-duration.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import { resolveAgentModelPrimaryValue } from "../../config/model-input.js";
 import type { AgentModelConfig } from "../../config/types.agents-shared.js";
+import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { normalizeAgentId } from "../../routing/session-key.js";
-import { resolveSandboxRuntimeStatus } from "../../agents/sandbox/runtime-status.js";
+
+const log = createSubsystemLogger("memory/session-sanitization/config");
 
 const DEFAULT_RAW_MAX_AGE = "24h";
 const DEFAULT_THINKING = "low";
@@ -21,7 +24,15 @@ export function resolveSessionSanitizationConfig(
 ): ResolvedSessionSanitizationConfig {
   const raw = cfg?.memory?.sessions?.sanitization;
   const rawMaxAge = raw?.rawMaxAge?.trim() || DEFAULT_RAW_MAX_AGE;
-  const parsedRawMaxAge = parseDurationMs(rawMaxAge);
+  let parsedRawMaxAge: number;
+  try {
+    parsedRawMaxAge = parseDurationMs(rawMaxAge);
+  } catch {
+    log.warn(`Invalid rawMaxAge value "${rawMaxAge}", falling back to default`, {
+      fallback: DEFAULT_RAW_MAX_AGE,
+    });
+    parsedRawMaxAge = parseDurationMs(DEFAULT_RAW_MAX_AGE);
+  }
   return {
     enabled: raw?.enabled === true,
     model: raw?.model ?? cfg?.agents?.defaults?.subagents?.model ?? cfg?.agents?.defaults?.model,
@@ -34,7 +45,10 @@ export function resolveSessionSanitizationConfig(
   };
 }
 
-export function buildSessionSanitizationHelperSessionKey(agentId: string, suffix = "helper"): string {
+export function buildSessionSanitizationHelperSessionKey(
+  agentId: string,
+  suffix = "helper",
+): string {
   return `agent:${normalizeAgentId(agentId)}:session-memory-${suffix}`;
 }
 
