@@ -67,4 +67,56 @@ describe("createAnthropicPayloadLogger", () => {
     expect(raw).toContain("keep this sentence");
     expect(raw).not.toContain("OPENAI_API_KEY=sk-1234567890abcdef");
   });
+
+  it("redacts base64 image data from payload before logging", async () => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-payload-log-"));
+    const logFile = path.join(tmpDir, "anthropic-payload.jsonl");
+    const logger = createAnthropicPayloadLogger({
+      env: {
+        ...process.env,
+        OPENCLAW_ANTHROPIC_PAYLOAD_LOG: "1",
+        OPENCLAW_ANTHROPIC_PAYLOAD_LOG_FILE: logFile,
+      },
+    });
+
+    expect(logger).not.toBeNull();
+
+    // Simulate a realistic base64-encoded image payload (non-trivial length).
+    const imageData = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ".repeat(50);
+    const streamFn = vi.fn(
+      (_model, _context, options?: { onPayload?: (payload: unknown) => void }) => {
+        options?.onPayload?.({
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "image",
+                  source: {
+                    type: "base64",
+                    media_type: "image/png",
+                    data: imageData,
+                  },
+                },
+              ],
+            },
+          ],
+        });
+        return Promise.resolve(undefined);
+      },
+    );
+
+    await logger!.wrapStreamFn(streamFn as never)(
+      { api: "anthropic-messages" } as never,
+      {} as never,
+      {},
+    );
+
+    await waitForFileContains(logFile, "<redacted:");
+
+    const raw = await fs.readFile(logFile, "utf8");
+    expect(raw).not.toContain(imageData);
+    expect(raw).toContain("<redacted:");
+    expect(raw).toContain("image/png");
+  });
 });

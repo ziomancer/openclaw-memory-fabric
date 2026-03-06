@@ -8,6 +8,7 @@ import { resolveUserPath } from "../utils.js";
 import { parseBooleanValue } from "../utils/boolean.js";
 import { safeJsonStringify } from "../utils/safe-json.js";
 import { sanitizePayloadForLogging } from "./payload-log-redaction.js";
+import { redactImageDataForDiagnostics } from "./payload-redaction.js";
 import { getQueuedFileWriter, type QueuedFileWriter } from "./queued-file-writer.js";
 
 type PayloadLogStage = "request" | "usage";
@@ -136,15 +137,17 @@ export function createAnthropicPayloadLogger(params: {
         return streamFn(model, context, options);
       }
       const nextOnPayload = (payload: unknown) => {
-        // Redact structured secrets before writing debug payloads. Transcript-bearing
-        // content can still appear semantically here; docs warn against enabling this
-        // logger in environments where raw prompts are sensitive.
+        // Redact structured secrets then strip base64 image blobs before writing
+        // debug payloads. Transcript-bearing content can still appear semantically
+        // here; docs warn against enabling this logger in environments where raw
+        // prompts are sensitive.
         const sanitizedPayload = sanitizePayloadForLogging(payload);
+        const redactedPayload = redactImageDataForDiagnostics(sanitizedPayload);
         record({
           ...base,
           ts: new Date().toISOString(),
           stage: "request",
-          payload: sanitizedPayload,
+          payload: redactedPayload,
           payloadDigest: digest(payload),
         });
         options?.onPayload?.(payload);
