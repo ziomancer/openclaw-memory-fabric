@@ -1,7 +1,10 @@
 import crypto from "node:crypto";
+import { createSubsystemLogger } from "../../../logging/subsystem.js";
 import type { AlertPayload, AlertSeverity, AuditEventRecord } from "../types.js";
 import type { ResolvedAlertingConfig } from "./config.js";
 import { queryIndex } from "./state.js";
+
+const log = createSubsystemLogger("memory/session-sanitization/alerting/rules");
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -37,10 +40,10 @@ export const evaluateSyntacticFailBurst: RuleEvaluator = ({ entry, cfg, recentCo
   if (entry.event !== "syntactic_fail") return null;
 
   const rule = cfg.rules.syntacticFailBurst;
+  // Cross-session: count syntactic_fail across ALL sessions for this agent
   const recent = queryIndex({
     event: "syntactic_fail",
     agentId: entry.agentId,
-    sessionId: entry.sessionId,
     windowMs: rule.windowMs,
     now,
   });
@@ -157,11 +160,24 @@ export const evaluateSemanticCatch: RuleEvaluator = ({ entry, cfg, recentContext
   if (entry.event !== "sanitized_block") return null;
   if (entry.tier !== 2) return null;
 
-  // Check if Tier 1 flagged this same tool call (structural_block makes sanitized_block
-  // impossible; check syntactic_fail for the same toolCallId)
-  const hadSyntacticFlag = recentContext.some(
-    (e) => e.event === "syntactic_fail" && entry.toolCallId && e.toolCallId === entry.toolCallId,
-  );
+  // Correlate with syntactic_fail using messageId (primary) or toolCallId (fallback).
+  // If both are null we cannot verify — skip correlation and log a warning.
+  let hadSyntacticFlag: boolean;
+  if (entry.messageId) {
+    hadSyntacticFlag = recentContext.some(
+      (e) => e.event === "syntactic_fail" && e.messageId === entry.messageId,
+    );
+  } else if (entry.toolCallId) {
+    hadSyntacticFlag = recentContext.some(
+      (e) => e.event === "syntactic_fail" && e.toolCallId === entry.toolCallId,
+    );
+  } else {
+    log.warn("alerting: Rule 4 — messageId and toolCallId both null, skipping correlation", {
+      agentId: entry.agentId,
+      sessionId: entry.sessionId,
+    });
+    return null;
+  }
   if (hadSyntacticFlag) return null;
 
   // Count prior Tier 2 semantic catches in the last 24h for severity escalation

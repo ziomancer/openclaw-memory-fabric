@@ -15,6 +15,7 @@ import {
   recordFired,
   sweepIndex,
 } from "./state.js";
+import { appendAlertLogEntry } from "./log.js";
 import { deliverWebhook } from "./webhook.js";
 
 export { getDailySummary, resetAlertingState } from "./state.js";
@@ -104,6 +105,15 @@ export function notifyAlerting(params: {
     recordFired(dedupKey, params.now);
     recordDelivery(alert.ruleId, params.now);
     incrementDailyCount(alert.ruleId, params.now);
+
+    // Log channel (always on) — fire-and-forget
+    appendAlertLogEntry(alert, params.agentId).catch((err) => {
+      log.warn("alerting: log write error", {
+        alertId: alert!.alertId,
+        ruleId: alert!.ruleId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
 
     // Deliver webhook fire-and-forget
     deliverWebhook(alert, alertingCfg).catch((err) => {

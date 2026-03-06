@@ -64,39 +64,50 @@ const VERBOSITY_RANK: Record<AuditVerbosity, number> = {
  * Events not listed here are always emitted (unknown/future events pass through).
  */
 const EVENT_MIN_VERBOSITY: Readonly<Record<string, AuditVerbosity>> = {
-  // minimal — critical block / termination decisions only
+  // minimal — all terminal/security decisions, pre-filter failures
   structural_block: "minimal",
   sanitized_block: "minimal",
   frequency_escalation_tier3: "minimal",
   write_failed: "minimal",
-  // standard — normal decision events
+  syntactic_fail: "minimal",
+  schema_fail: "minimal",
+  twopass_hard_block: "minimal",
+  frequency_escalation_tier1: "minimal",
+  frequency_escalation_tier2: "minimal",
+  audit_config_loaded: "minimal",
+  // standard — normal decision events + pass events
   trusted_pass: "standard",
-  twopass_hard_block: "standard",
-  frequency_escalation_tier1: "standard",
-  frequency_escalation_tier2: "standard",
   sanitized_pass: "standard",
+  syntactic_pass: "standard",
+  schema_pass: "standard",
+  syntactic_flags: "standard",
+  flags_summary: "standard",
   write: "standard",
   discard: "standard",
   raw_expired: "standard",
-  // high — diagnostic detail (pre-filter breakdown, per-rule events, diffs)
-  syntactic_pass: "high",
-  syntactic_fail: "high",
-  syntactic_flags: "high",
-  schema_pass: "high",
-  schema_fail: "high",
+  // high — diagnostic detail (rule-level fan-out, diffs)
   rule_triggered: "high",
   output_diff: "high",
-  flags_summary: "high",
-  // maximum — raw payload capture and configuration snapshot
+  // maximum — raw payload capture
   raw_input_captured: "maximum",
   raw_output_captured: "maximum",
-  audit_config_loaded: "maximum",
+};
+
+/**
+ * Maximum verbosity at which an event is emitted.
+ * Events listed here are suppressed when verbosity exceeds the ceiling.
+ * Used for flags_summary, which is replaced by rule_triggered fan-out at high+.
+ */
+const EVENT_MAX_VERBOSITY: Readonly<Partial<Record<string, AuditVerbosity>>> = {
+  flags_summary: "standard", // suppressed at high+ (rule_triggered fan-out takes over)
 };
 
 function shouldEmitForVerbosity(event: string, verbosity: AuditVerbosity): boolean {
   const minRequired = EVENT_MIN_VERBOSITY[event];
-  if (!minRequired) return true; // unknown events always emit
-  return VERBOSITY_RANK[verbosity] >= VERBOSITY_RANK[minRequired];
+  if (minRequired && VERBOSITY_RANK[verbosity] < VERBOSITY_RANK[minRequired]) return false;
+  const maxAllowed = EVENT_MAX_VERBOSITY[event];
+  if (maxAllowed !== undefined && VERBOSITY_RANK[verbosity] > VERBOSITY_RANK[maxAllowed]) return false;
+  return true;
 }
 
 /** Append an audit entry only if the configured verbosity level permits it.

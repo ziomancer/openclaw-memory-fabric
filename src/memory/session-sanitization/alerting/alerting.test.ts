@@ -7,6 +7,9 @@
  */
 
 import crypto from "node:crypto";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../../config/config.js";
 import type { AuditEventRecord } from "../types.js";
@@ -427,6 +430,52 @@ describe("evaluateSemanticCatch", () => {
   });
 });
 
+describe("evaluateSyntacticFailBurst — cross-session aggregation", () => {
+  const cfg = resolveAlertingConfig(makeCfg({ rules: { syntacticFailBurst: { count: 3, windowMinutes: 10 } } }));
+
+  it("counts syntactic_fail across different sessions for the same agent", () => {
+    // 3 events from 3 different sessions — should still trigger
+    addToIndex(makeEvent("syntactic_fail", { sessionId: "sess-x" }), NOW);
+    addToIndex(makeEvent("syntactic_fail", { sessionId: "sess-y" }), NOW);
+    addToIndex(makeEvent("syntactic_fail", { sessionId: "sess-z" }), NOW);
+    const entry = makeEvent("syntactic_fail", { sessionId: "sess-new" });
+    const alert = evaluateSyntacticFailBurst({ entry, cfg, recentContext: [], now: NOW });
+    expect(alert).not.toBeNull();
+    expect(alert?.ruleId).toBe("syntacticFailBurst");
+  });
+});
+
+describe("evaluateSemanticCatch — messageId correlation", () => {
+  const cfg = resolveAlertingConfig(makeCfg());
+
+  it("correlates by messageId when present (primary join)", () => {
+    const entry = makeEvent("sanitized_block", { tier: 2, messageId: "msg-1", toolCallId: "tc-1" });
+    // syntactic_fail for same messageId → hadSyntacticFlag = true → no alert
+    const recentContext = [makeEvent("syntactic_fail", { messageId: "msg-1", toolCallId: "tc-99" })];
+    expect(evaluateSemanticCatch({ entry, cfg, recentContext, now: NOW })).toBeNull();
+  });
+
+  it("uses toolCallId as fallback when messageId is absent", () => {
+    const entry = makeEvent("sanitized_block", { tier: 2, toolCallId: "tc-2" });
+    const recentContext = [makeEvent("syntactic_fail", { toolCallId: "tc-2" })];
+    expect(evaluateSemanticCatch({ entry, cfg, recentContext, now: NOW })).toBeNull();
+  });
+
+  it("returns null and logs warning when both messageId and toolCallId are null", () => {
+    const entry = makeEvent("sanitized_block", { tier: 2 });
+    // no messageId, no toolCallId — skip correlation
+    expect(evaluateSemanticCatch({ entry, cfg, recentContext: [], now: NOW })).toBeNull();
+  });
+
+  it("fires alert when messageId present but no matching syntactic_fail by messageId", () => {
+    const entry = makeEvent("sanitized_block", { tier: 2, messageId: "msg-new" });
+    // syntactic_fail for a different messageId — should NOT suppress
+    const recentContext = [makeEvent("syntactic_fail", { messageId: "msg-other" })];
+    const alert = evaluateSemanticCatch({ entry, cfg, recentContext, now: NOW });
+    expect(alert).not.toBeNull();
+  });
+});
+
 describe("evaluateWriteFailSpike", () => {
   const cfg = resolveAlertingConfig(makeCfg({ rules: { writeFailSpike: { count: 3, windowMinutes: 5 } } }));
 
@@ -504,7 +553,7 @@ describe("webhook delivery", () => {
     expect((init as RequestInit).headers).toMatchObject({ "Content-Type": "application/json" });
   });
 
-  it("includes HMAC-SHA256 signature when secret is configured", async () => {
+  it("includes HMAC-SHA256 signature with timestamp prefix when secret is configured", async () => {
     const { deliverWebhook } = await import("./webhook.js");
     vi.mocked(fetch).mockResolvedValue({ ok: true } as Response);
     const secret = "my-webhook-secret";
@@ -526,10 +575,13 @@ describe("webhook delivery", () => {
     const [, init] = vi.mocked(fetch).mock.calls[0]!;
     const headers = (init as RequestInit).headers as Record<string, string>;
     const sig = headers["X-OpenClaw-Signature"];
+    const ts = headers["X-OpenClaw-Timestamp"];
     expect(sig).toMatch(/^sha256=/);
-    // Verify signature manually
-    const body = JSON.stringify(payload);
-    const expected = `sha256=${crypto.createHmac("sha256", secret).update(body).digest("hex")}`;
+    expect(ts).toBeDefined();
+    expect(headers["X-OpenClaw-Alert-Severity"]).toBe("high");
+    // Verify signature: HMAC-SHA256(secret, timestamp + "." + body)
+    const body = (init as RequestInit).body as string;
+    const expected = `sha256=${crypto.createHmac("sha256", secret).update(`${ts}.${body}`).digest("hex")}`;
     expect(sig).toBe(expected);
   });
 
@@ -557,6 +609,70 @@ describe("webhook delivery", () => {
     );
     // Initial attempt + 2 retries = 3 calls
     expect(fetch).toHaveBeenCalledTimes(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Log channel
+// ---------------------------------------------------------------------------
+
+describe("log channel", () => {
+  let tempDir = "";
+  const originalStateDir = process.env.OPENCLAW_STATE_DIR;
+
+  beforeEach(async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-alert-log-test-"));
+    process.env.OPENCLAW_STATE_DIR = tempDir;
+  });
+
+  afterEach(async () => {
+    if (originalStateDir === undefined) {
+      delete process.env.OPENCLAW_STATE_DIR;
+    } else {
+      process.env.OPENCLAW_STATE_DIR = originalStateDir;
+    }
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("appends alert to alerts.jsonl when appendAlertLogEntry is called", async () => {
+    const { appendAlertLogEntry } = await import("./log.js");
+    const payload = {
+      alertId: "log-1",
+      ruleId: "writeFailSpike",
+      severity: "medium" as const,
+      agentId: AGENT_ID,
+      sessionId: SESSION_ID,
+      timestamp: new Date().toISOString(),
+      summary: "test log write",
+      details: { triggeringEvents: [], recentContext: [] },
+      metadata: { ruleConfig: {} },
+    };
+    await appendAlertLogEntry(payload, AGENT_ID);
+    // Find the alerts.jsonl file under the temp state dir
+    const files = await fs.readdir(tempDir, { recursive: true });
+    const logFile = files.find((f) => String(f).endsWith("alerts.jsonl"));
+    expect(logFile).toBeDefined();
+    const contents = await fs.readFile(path.join(tempDir, String(logFile)), "utf8");
+    const parsed = JSON.parse(contents.trim());
+    expect(parsed.alertId).toBe("log-1");
+    expect(parsed.ruleId).toBe("writeFailSpike");
+  });
+
+  it("creates parent directories if they do not exist", async () => {
+    const { appendAlertLogEntry } = await import("./log.js");
+    const payload = {
+      alertId: "log-2",
+      ruleId: "syntacticFailBurst",
+      severity: "high" as const,
+      agentId: "new-agent",
+      sessionId: SESSION_ID,
+      timestamp: new Date().toISOString(),
+      summary: "dir creation test",
+      details: { triggeringEvents: [], recentContext: [] },
+      metadata: { ruleConfig: {} },
+    };
+    // Should not throw even though directories don't exist yet
+    await expect(appendAlertLogEntry(payload, "new-agent")).resolves.toBeUndefined();
   });
 });
 

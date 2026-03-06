@@ -5,14 +5,17 @@ import type { ResolvedAlertingConfig } from "./config.js";
 
 const log = createSubsystemLogger("memory/session-sanitization/alerting/webhook");
 
-function sign(body: string, secret: string): string {
-  return `sha256=${crypto.createHmac("sha256", secret).update(body).digest("hex")}`;
+/** Sign a webhook payload: HMAC-SHA256(secret, timestamp + "." + body). */
+function sign(body: string, secret: string, timestamp: string): string {
+  return `sha256=${crypto.createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex")}`;
 }
 
 async function tryDeliver(
   url: string,
   body: string,
   signature: string,
+  timestamp: string,
+  severity: string,
   timeoutMs: number,
 ): Promise<boolean> {
   try {
@@ -23,6 +26,8 @@ async function tryDeliver(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "X-OpenClaw-Alert-Severity": severity,
+          "X-OpenClaw-Timestamp": timestamp,
           "X-OpenClaw-Signature": signature,
           "X-OpenClaw-Event": "alert",
         },
@@ -53,7 +58,8 @@ export async function deliverWebhook(
   if (!url) return;
 
   const body = JSON.stringify(payload);
-  const signature = secret ? sign(body, secret) : "sha256=unsigned";
+  const timestamp = new Date().toISOString();
+  const signature = secret ? sign(body, secret, timestamp) : "sha256=unsigned";
 
   if (!secret) {
     log.warn("alerting webhook: no secret configured — payload will not be signed", {
@@ -63,7 +69,7 @@ export async function deliverWebhook(
 
   let attempt = 0;
   while (attempt <= retries) {
-    const ok = await tryDeliver(url, body, signature, timeoutMs);
+    const ok = await tryDeliver(url, body, signature, timestamp, payload.severity, timeoutMs);
     if (ok) return;
     attempt++;
     if (attempt <= retries) {
