@@ -34,6 +34,17 @@ function buildSkillsSection(params: { skillsPrompt?: string; readToolName: strin
   ];
 }
 
+function buildMcpSanitizationSection(params: { enabled: boolean; isMinimal: boolean }) {
+  if (!params.enabled || params.isMinimal) {
+    return [];
+  }
+  return [
+    "## MCP Tool Sanitization",
+    "MCP tool results from undeclared or untrusted servers are automatically filtered before reaching you. Results blocked by the sanitization layer will appear as structured error responses. If you see an MCP error referencing 'sanitization', the raw result was flagged as potentially adversarial.",
+    "",
+  ];
+}
+
 function buildMemorySection(params: {
   isMinimal: boolean;
   availableTools: Set<string>;
@@ -263,6 +274,8 @@ export function buildAgentSystemPrompt(params: {
     channel: string;
   };
   memoryCitationsMode?: MemoryCitationsMode;
+  /** When true, injects a brief MCP sanitization note for the manager agent. */
+  mcpSanitizationEnabled?: boolean;
 }) {
   const acpEnabled = params.acpEnabled !== false;
   const sandboxedRuntime = params.sandboxInfo?.enabled === true;
@@ -442,6 +455,10 @@ export function buildAgentSystemPrompt(params: {
     availableTools,
     citationsMode: params.memoryCitationsMode,
   });
+  const mcpSanitizationSection = buildMcpSanitizationSection({
+    enabled: params.mcpSanitizationEnabled === true,
+    isMinimal,
+  });
   const docsSection = buildDocsSection({
     docsPath: params.docsPath,
     isMinimal,
@@ -512,6 +529,7 @@ export function buildAgentSystemPrompt(params: {
     "",
     ...skillsSection,
     ...memorySection,
+    ...mcpSanitizationSection,
     // Skip self-update for subagent/none modes
     hasGateway && !isMinimal ? "## OpenClaw Self-Update" : "",
     hasGateway && !isMinimal

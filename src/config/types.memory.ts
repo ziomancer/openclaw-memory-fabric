@@ -16,11 +16,18 @@ export type MemorySessionsConfig = {
   sanitization?: MemorySessionSanitizationConfig;
 };
 
+export type MemorySessionSanitizationMcpConfig = {
+  enabled?: boolean;
+  trustedServers?: string[];
+  blockOnSandboxUnavailable?: boolean;
+};
+
 export type MemorySessionSanitizationConfig = {
   enabled?: boolean;
   model?: AgentModelConfig;
   thinking?: string;
   rawMaxAge?: string;
+  mcp?: MemorySessionSanitizationMcpConfig;
 };
 
 export type MemoryQmdConfig = {
