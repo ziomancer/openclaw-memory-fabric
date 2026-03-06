@@ -7,7 +7,11 @@ import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 import type { OpenClawConfig } from "../config/config.js";
 import { logDebug, logError } from "../logger.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
-import { resolveToolServer, UNKNOWN_MCP_SERVER } from "../memory/session-sanitization/config.js";
+import {
+  isMcpToolNameDeclared,
+  resolveToolServer,
+  UNKNOWN_MCP_SERVER,
+} from "../memory/session-sanitization/config.js";
 import { processMcpToolResult } from "../memory/session-sanitization/service.js";
 import { isPlainObject } from "../utils.js";
 import type { ClientToolDefinition } from "./pi-embedded-runner/run/params.js";
@@ -227,11 +231,17 @@ export function wrapMcpToolDefinitions(
 
   let changed = false;
   const next = defs.map((def) => {
+    // Gate: only tools explicitly declared by exact name in cfg.mcpServers are
+    // confirmed MCP tools.  Prefix entries in the registry are for server-
+    // resolution disambiguation only, not for MCP membership.  A native tool
+    // whose name happens to share a prefix with a configured server entry must
+    // never reach processMcpToolResult.
+    if (!isMcpToolNameDeclared(params.cfg, def.name)) {
+      return def;
+    }
     const server = resolveToolServer(params.cfg, def.name);
-    // Only wrap tools declared in mcpServers.  Tools whose names do not appear
-    // in any server entry are native OpenClaw or client tools — they must not
-    // be routed through processMcpToolResult.  The "unknown" sentinel means
-    // "not an MCP tool in this context", not "untrusted MCP tool".
+    // Retain the UNKNOWN_MCP_SERVER guard as a safety net: if somehow no
+    // server claims the tool after the exact-name gate passed, skip wrapping.
     if (server === UNKNOWN_MCP_SERVER) {
       return def;
     }

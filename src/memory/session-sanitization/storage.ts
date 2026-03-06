@@ -88,6 +88,19 @@ export async function writeSessionMemoryRawEntry(params: {
   return filePath;
 }
 
+export async function deleteSessionMemoryRawEntry(params: {
+  agentId: string;
+  sessionId: string;
+  entry: Pick<SessionMemoryRawEntry, "messageId">;
+}): Promise<void> {
+  const filePath = resolveSessionMemoryRawFile({
+    agentId: params.agentId,
+    sessionId: params.sessionId,
+    messageId: params.entry.messageId,
+  });
+  await fs.rm(filePath, { force: true });
+}
+
 export async function readSessionMemoryRawEntry(
   filePath: string,
 ): Promise<SessionMemoryRawEntry | null> {

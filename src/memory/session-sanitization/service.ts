@@ -13,6 +13,7 @@ import {
   appendSessionMemoryAuditEntry,
   upsertSessionMemorySummaryEntry,
   deleteSessionMemoryArtifacts,
+  deleteSessionMemoryRawEntry,
   readSessionMemoryRawEntries,
   readSessionMemorySummaryEntries,
   sweepExpiredSessionMemoryMcpRawEntries,
@@ -352,6 +353,14 @@ export async function writeTranscriptTurnToSessionMemory(params: {
     });
 
     if (child.discard) {
+      // Remove the raw sidecar written before the helper ran.  Discarded
+      // entries are never used for retrieval, so retaining the file only
+      // increases transcript retention with no benefit.
+      await deleteSessionMemoryRawEntry({
+        agentId: params.agentId,
+        sessionId: params.sessionId,
+        entry: rawEntry,
+      });
       await appendSessionMemoryAuditEntry({
         agentId: params.agentId,
         sessionId: params.sessionId,
