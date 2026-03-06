@@ -160,16 +160,18 @@ export const evaluateSemanticCatch: RuleEvaluator = ({ entry, cfg, recentContext
   if (entry.event !== "sanitized_block") return null;
   if (entry.tier !== 2) return null;
 
-  // Correlate with syntactic_fail using messageId (primary) or toolCallId (fallback).
-  // If both are null we cannot verify — skip correlation and log a warning.
-  let hadSyntacticFlag: boolean;
+  // Correlate with syntactic_pass (no flags) using messageId (primary) or
+  // toolCallId (fallback). The rule fires only when there is a confirmed
+  // syntactic_pass — meaning Tier 1 ran and found nothing, but Tier 2 caught
+  // something. If we cannot correlate or there is no syntactic_pass, skip.
+  let hadSyntacticPass: boolean;
   if (entry.messageId) {
-    hadSyntacticFlag = recentContext.some(
-      (e) => e.event === "syntactic_fail" && e.messageId === entry.messageId,
+    hadSyntacticPass = recentContext.some(
+      (e) => e.event === "syntactic_pass" && e.messageId === entry.messageId,
     );
   } else if (entry.toolCallId) {
-    hadSyntacticFlag = recentContext.some(
-      (e) => e.event === "syntactic_fail" && e.toolCallId === entry.toolCallId,
+    hadSyntacticPass = recentContext.some(
+      (e) => e.event === "syntactic_pass" && e.toolCallId === entry.toolCallId,
     );
   } else {
     log.warn("alerting: Rule 4 — messageId and toolCallId both null, skipping correlation", {
@@ -178,7 +180,8 @@ export const evaluateSemanticCatch: RuleEvaluator = ({ entry, cfg, recentContext
     });
     return null;
   }
-  if (hadSyntacticFlag) return null;
+  // Only trigger when syntactic explicitly passed — confirms Tier 1 missed the threat.
+  if (!hadSyntacticPass) return null;
 
   // Count prior Tier 2 semantic catches in the last 24h for severity escalation
   const prior24h = queryIndex({

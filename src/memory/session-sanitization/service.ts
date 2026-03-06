@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import type { OpenClawConfig } from "../../config/config.js";
 import { fireAndForgetHook } from "../../hooks/fire-and-forget.js";
 import type { CanonicalInboundMessageHookContext } from "../../hooks/message-hook-mappers.js";
@@ -41,6 +42,7 @@ import {
   type SessionMemoryWriteResult,
 } from "./types.js";
 import { notifyAlerting } from "./alerting/service.js";
+import { resolveAlertingConfig } from "./alerting/config.js";
 import { runPreFilter } from "./validation.js";
 
 const log = createSubsystemLogger("memory/session-sanitization");
@@ -102,7 +104,14 @@ const EVENT_MAX_VERBOSITY: Readonly<Partial<Record<string, AuditVerbosity>>> = {
   flags_summary: "standard", // suppressed at high+ (rule_triggered fan-out takes over)
 };
 
-function shouldEmitForVerbosity(event: string, verbosity: AuditVerbosity): boolean {
+function shouldEmitForVerbosity(
+  event: string,
+  verbosity: AuditVerbosity,
+  alertingEnabled = false,
+): boolean {
+  // Alerting override: syntactic_pass is always emitted when alerting is active.
+  // Rule 4 (semanticCatch) requires syntactic_pass for cross-event correlation.
+  if (alertingEnabled && event === "syntactic_pass") return true;
   const minRequired = EVENT_MIN_VERBOSITY[event];
   if (minRequired && VERBOSITY_RANK[verbosity] < VERBOSITY_RANK[minRequired]) return false;
   const maxAllowed = EVENT_MAX_VERBOSITY[event];
@@ -112,15 +121,18 @@ function shouldEmitForVerbosity(event: string, verbosity: AuditVerbosity): boole
 
 /** Append an audit entry only if the configured verbosity level permits it.
  *  When alertDeps is provided, the alerting engine is notified after the write.
+ *  The alerting override (syntactic_pass at minimal when alerting is on) is
+ *  derived from alertDeps.cfg.
  */
 async function gatedAudit(
   params: { agentId: string; sessionId: string; entry: SessionMemoryAuditEntry },
   verbosity: AuditVerbosity,
   alertDeps?: { cfg: OpenClawConfig; now: number },
 ): Promise<void> {
-  if (!shouldEmitForVerbosity(params.entry.event, verbosity)) return;
+  const alertingEnabled = alertDeps ? resolveAlertingConfig(alertDeps.cfg).enabled : false;
+  if (!shouldEmitForVerbosity(params.entry.event, verbosity, alertingEnabled)) return;
   await appendSessionMemoryAuditEntry(params);
-  if (alertDeps) {
+  if (alertDeps && alertingEnabled) {
     notifyAlerting({
       entry: params.entry,
       agentId: params.agentId,
@@ -315,7 +327,7 @@ function computeOutputDiff(
         location: key,
         reason: "field removed by sanitizer",
         lengthBefore: rawStr.length,
-        sha256: "",
+        sha256: crypto.createHash("sha256").update(rawStr).digest("hex"),
       });
     } else {
       const sanitizedStr = JSON.stringify(sanitizedObj[key]) ?? "";
@@ -325,7 +337,7 @@ function computeOutputDiff(
           reason: "field modified by sanitizer",
           lengthBefore: rawStr.length,
           lengthAfter: sanitizedStr.length,
-          sha256Before: "",
+          sha256Before: crypto.createHash("sha256").update(rawStr).digest("hex"),
         });
       }
     }
