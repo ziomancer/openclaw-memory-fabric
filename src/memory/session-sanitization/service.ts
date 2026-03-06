@@ -3,6 +3,8 @@ import type { OpenClawConfig } from "../../config/config.js";
 import { fireAndForgetHook } from "../../hooks/fire-and-forget.js";
 import type { CanonicalInboundMessageHookContext } from "../../hooks/message-hook-mappers.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
+import { resolveAlertingConfig } from "./alerting/config.js";
+import { notifyAlerting } from "./alerting/service.js";
 import {
   isMcpServerTrusted,
   resolveSessionSanitizationAvailability,
@@ -41,8 +43,6 @@ import {
   type SessionSuspicionState,
   type SessionMemoryWriteResult,
 } from "./types.js";
-import { notifyAlerting } from "./alerting/service.js";
-import { resolveAlertingConfig } from "./alerting/config.js";
 import { runPreFilter } from "./validation.js";
 
 const log = createSubsystemLogger("memory/session-sanitization");
@@ -115,7 +115,8 @@ function shouldEmitForVerbosity(
   const minRequired = EVENT_MIN_VERBOSITY[event];
   if (minRequired && VERBOSITY_RANK[verbosity] < VERBOSITY_RANK[minRequired]) return false;
   const maxAllowed = EVENT_MAX_VERBOSITY[event];
-  if (maxAllowed !== undefined && VERBOSITY_RANK[verbosity] > VERBOSITY_RANK[maxAllowed]) return false;
+  if (maxAllowed !== undefined && VERBOSITY_RANK[verbosity] > VERBOSITY_RANK[maxAllowed])
+    return false;
   return true;
 }
 
@@ -230,7 +231,11 @@ function updateFrequencyScore(
       sessionId,
       error: error instanceof Error ? error.message : String(error),
     });
-    return { newScore: 0, tier: "none" as EscalationTier, state: existing ?? { lastScore: 0, lastUpdateMs: now } };
+    return {
+      newScore: 0,
+      tier: "none" as EscalationTier,
+      state: existing ?? { lastScore: 0, lastUpdateMs: now },
+    };
   }
 }
 
@@ -559,7 +564,9 @@ function formatAutomaticRecallPrompt(result: SessionMemoryRecallResult): string 
     `Source: ${result.source}`,
     `Confidence: ${result.confidence}`,
     confidenceNote,
+    "<session_memory>",
     text,
+    "</session_memory>",
   ].join("\n");
 }
 
@@ -644,12 +651,11 @@ export async function writeTranscriptTurnToSessionMemory(params: {
 
   // Emit syntactic audit events
   if (validationCfg.syntactic.enabled) {
-    const syntacticEvent =
-      !preFilter.syntactic.pass
-        ? "syntactic_fail"
-        : preFilter.syntactic.flags.length > 0
-          ? "syntactic_flags"
-          : "syntactic_pass";
+    const syntacticEvent = !preFilter.syntactic.pass
+      ? "syntactic_fail"
+      : preFilter.syntactic.flags.length > 0
+        ? "syntactic_flags"
+        : "syntactic_pass";
     await gatedAudit(
       {
         agentId: params.agentId,
@@ -982,10 +988,13 @@ export async function recallSessionMemory(params: {
   }
 
   const now = params.helperDeps?.now?.() ?? Date.now();
+  const recallValidationCfg = resolveSessionSanitizationValidationConfig(params.cfg);
   await sweepAndAuditExpiredRaw({
     agentId: params.agentId,
     sessionId: params.sessionId,
     now,
+    verbosity: recallValidationCfg.audit.verbosity,
+    auditEnabled: recallValidationCfg.audit.enabled,
   });
 
   const summaries = await readSessionMemorySummaryEntries({
@@ -1085,6 +1094,7 @@ export async function signalSessionMemory(params: {
     return { mode: "signal", relevant: [] };
   }
   const now = params.helperDeps?.now?.() ?? Date.now();
+  const signalValidationCfg = resolveSessionSanitizationValidationConfig(params.cfg);
   const limit =
     typeof params.limit === "number" && Number.isFinite(params.limit)
       ? Math.max(1, Math.min(100, Math.floor(params.limit)))
@@ -1093,6 +1103,8 @@ export async function signalSessionMemory(params: {
     agentId: params.agentId,
     sessionId: params.sessionId,
     now,
+    verbosity: signalValidationCfg.audit.verbosity,
+    auditEnabled: signalValidationCfg.audit.enabled,
   });
 
   const summaries = sortByLexicalMatch(
@@ -1379,12 +1391,11 @@ export async function processMcpToolResult(params: {
 
   // Emit syntactic audit events
   if (validationCfg.syntactic.enabled) {
-    const syntacticEvent =
-      !mcpPreFilter.syntactic.pass
-        ? "syntactic_fail"
-        : mcpPreFilter.syntactic.flags.length > 0
-          ? "syntactic_flags"
-          : "syntactic_pass";
+    const syntacticEvent = !mcpPreFilter.syntactic.pass
+      ? "syntactic_fail"
+      : mcpPreFilter.syntactic.flags.length > 0
+        ? "syntactic_flags"
+        : "syntactic_pass";
     await gatedAudit(
       {
         agentId: params.agentId,
@@ -1582,11 +1593,7 @@ export async function processMcpToolResult(params: {
       alertDeps,
       auditEnabled,
     );
-    return buildBlockedResult(
-      mcpPreFilter.allFlags,
-      "blocked: syntactic hard block rule",
-      1,
-    );
+    return buildBlockedResult(mcpPreFilter.allFlags, "blocked: syntactic hard block rule", 1);
   }
 
   // Build tier2 enhanced scrutiny note
