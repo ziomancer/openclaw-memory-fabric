@@ -62,6 +62,11 @@ export function redactImageDataForDiagnostics(payload: unknown): unknown {
   if (!payload || typeof payload !== "object") {
     return payload;
   }
+  // Handle a raw messages array passed directly (e.g. from cache-trace path).
+  if (Array.isArray(payload)) {
+    const messages = payload.map(redactMessage);
+    return messages.every((m, i) => m === (payload as unknown[])[i]) ? payload : messages;
+  }
   const p = payload as Record<string, unknown>;
   if (!Array.isArray(p.messages)) {
     return payload;

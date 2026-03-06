@@ -240,11 +240,9 @@ export function wrapMcpToolDefinitions(
       return def;
     }
     const server = resolveToolServer(params.cfg, def.name);
-    // Retain the UNKNOWN_MCP_SERVER guard as a safety net: if somehow no
-    // server claims the tool after the exact-name gate passed, skip wrapping.
-    if (server === UNKNOWN_MCP_SERVER) {
-      return def;
-    }
+    // UNKNOWN_MCP_SERVER means ambiguous or unresolved — do NOT skip.
+    // Route through processMcpToolResult as untrusted so sanitization applies.
+    // Fail-open here would silently bypass sanitization for ambiguous mappings.
     changed = true;
     const originalExecute = def.execute;
     return {
