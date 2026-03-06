@@ -228,10 +228,10 @@ export function wrapMcpToolDefinitions(
   let changed = false;
   const next = defs.map((def) => {
     const server = resolveToolServer(params.cfg, def.name);
-    // Only wrap tools explicitly claimed by a declared server; skip "unknown".
-    if (server === "unknown") {
-      return def;
-    }
+    // Wrap all tools — declared (known server) and undeclared ("unknown") alike.
+    // Unknown tools are not trusted and must go through full sanitization.
+    // The trusted-list fast-path inside processMcpToolResult handles declared
+    // trusted servers; everything else, including "unknown", is sanitized.
     changed = true;
     const originalExecute = def.execute;
     return {
