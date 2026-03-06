@@ -12,6 +12,7 @@ import { resolveChannelCapabilities } from "../../../config/channel-capabilities
 import type { OpenClawConfig } from "../../../config/config.js";
 import { getMachineDisplayName } from "../../../infra/machine-name.js";
 import { MAX_IMAGE_BYTES } from "../../../media/constants.js";
+import { resolveSessionSanitizationMcpConfig } from "../../../memory/session-sanitization/config.js";
 import { getGlobalHookRunner } from "../../../plugins/hook-runner-global.js";
 import type {
   PluginHookAgentContext,
@@ -62,7 +63,10 @@ import {
 } from "../../pi-embedded-helpers.js";
 import { subscribeEmbeddedPiSession } from "../../pi-embedded-subscribe.js";
 import { createPreparedEmbeddedPiSettingsManager } from "../../pi-project-settings.js";
-import { toClientToolDefinitions } from "../../pi-tool-definition-adapter.js";
+import {
+  toClientToolDefinitions,
+  wrapMcpToolDefinitions,
+} from "../../pi-tool-definition-adapter.js";
 import { createOpenClawCodingTools, resolveToolLoopDetectionConfig } from "../../pi-tools.js";
 import { resolveSandboxContext } from "../../sandbox.js";
 import { resolveSandboxRuntimeStatus } from "../../sandbox/runtime-status.js";
@@ -1094,7 +1098,17 @@ export async function runEmbeddedAttempt(
           )
         : [];
 
-      const allCustomTools = [...customTools, ...clientToolDefs];
+      const mergedCustomTools = [...customTools, ...clientToolDefs];
+      const mcpSanitizationCfg = resolveSessionSanitizationMcpConfig(params.config);
+      const allCustomTools =
+        mcpSanitizationCfg.enabled && params.config && params.sessionId
+          ? wrapMcpToolDefinitions(mergedCustomTools, {
+              cfg: params.config,
+              agentId: sessionAgentId,
+              sessionId: params.sessionId,
+              lane: "background:session-memory-mcp",
+            })
+          : mergedCustomTools;
 
       ({ session } = await createAgentSession({
         cwd: resolvedWorkspace,

@@ -5,11 +5,13 @@ import { resolveStateDir } from "../../config/paths.js";
 import { normalizeAgentId } from "../../routing/session-key.js";
 import type {
   SessionMemoryAuditEntry,
+  SessionMemoryMcpRawEntry,
   SessionMemoryRawEntry,
   SessionMemorySummaryEntry,
 } from "./types.js";
 import {
   sessionMemoryAuditEntrySchema,
+  sessionMemoryMcpRawEntrySchema,
   sessionMemoryRawEntrySchema,
   sessionMemorySummaryEntrySchema,
 } from "./types.js";
@@ -164,6 +166,37 @@ export async function appendSessionMemorySummaryEntry(params: {
   );
 }
 
+/**
+ * Upsert a summary entry by messageId.
+ *
+ * If an entry with the same messageId already exists in the summary file, it is
+ * replaced in-place. If no entry matches, the new entry is appended. This makes
+ * summary writes idempotent per messageId, matching the raw mirror which is
+ * already keyed by messageId filename.
+ */
+export async function upsertSessionMemorySummaryEntry(params: {
+  agentId: string;
+  sessionId: string;
+  entry: SessionMemorySummaryEntry;
+}): Promise<void> {
+  const parsed = sessionMemorySummaryEntrySchema.parse(params.entry);
+  const filePath = resolveSessionMemorySummaryFile(params.agentId, params.sessionId);
+  const existing = await readSessionMemorySummaryEntries({
+    agentId: params.agentId,
+    sessionId: params.sessionId,
+  });
+  const idx = existing.findIndex((e) => e.messageId === parsed.messageId);
+  if (idx === -1) {
+    // No existing entry — append as normal.
+    await appendJsonLine(filePath, parsed);
+    return;
+  }
+  // Replace the existing entry and rewrite the whole file.
+  existing[idx] = parsed;
+  await ensureParentDir(filePath);
+  await fs.writeFile(filePath, existing.map((e) => JSON.stringify(e)).join("\n") + "\n", "utf8");
+}
+
 export async function readSessionMemoryAuditEntries(params: {
   agentId: string;
   sessionId: string;
@@ -194,6 +227,93 @@ export async function sweepExpiredSessionMemoryRawEntries(params: {
 }): Promise<SessionMemoryRawEntry[]> {
   const rawEntries = await readSessionMemoryRawEntries(params);
   const expired = rawEntries.filter(({ entry }) => {
+    const expiresAt = Date.parse(entry.expiresAt);
+    return Number.isFinite(expiresAt) && expiresAt <= params.now;
+  });
+  await Promise.all(expired.map(({ filePath }) => fs.rm(filePath, { force: true })));
+  return expired.map(({ entry }) => entry);
+}
+
+function encodeMcpToolCallId(toolCallId: string): string {
+  const normalized = toolCallId.trim();
+  const safe = normalized.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80);
+  const digest = crypto.createHash("sha256").update(normalized).digest("hex").slice(0, 16);
+  return `mcp-${safe || "tool"}-${digest}`;
+}
+
+export function resolveSessionMemoryMcpRawFile(params: {
+  agentId: string;
+  sessionId: string;
+  toolCallId: string;
+}): string {
+  return path.join(
+    resolveSessionMemoryRawDir(params.agentId, params.sessionId),
+    `${encodeMcpToolCallId(params.toolCallId)}.json`,
+  );
+}
+
+export async function writeSessionMemoryMcpRawEntry(params: {
+  agentId: string;
+  sessionId: string;
+  entry: SessionMemoryMcpRawEntry;
+}): Promise<string> {
+  const parsed = sessionMemoryMcpRawEntrySchema.parse(params.entry);
+  const filePath = resolveSessionMemoryMcpRawFile({
+    agentId: params.agentId,
+    sessionId: params.sessionId,
+    toolCallId: parsed.toolCallId,
+  });
+  await ensureParentDir(filePath);
+  await fs.writeFile(filePath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  return filePath;
+}
+
+export async function readSessionMemoryMcpRawEntry(
+  filePath: string,
+): Promise<SessionMemoryMcpRawEntry | null> {
+  const raw = await safeReadUtf8(filePath);
+  if (!raw) {
+    return null;
+  }
+  try {
+    return sessionMemoryMcpRawEntrySchema.parse(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+export async function readSessionMemoryMcpRawEntries(params: {
+  agentId: string;
+  sessionId: string;
+}): Promise<Array<{ filePath: string; entry: SessionMemoryMcpRawEntry }>> {
+  const dir = resolveSessionMemoryRawDir(params.agentId, params.sessionId);
+  let names: string[] = [];
+  try {
+    names = await fs.readdir(dir);
+  } catch {
+    return [];
+  }
+  const rows = await Promise.all(
+    names
+      .filter((name) => name.startsWith("mcp-") && name.endsWith(".json"))
+      .map(async (name) => {
+        const filePath = path.join(dir, name);
+        const entry = await readSessionMemoryMcpRawEntry(filePath);
+        return entry ? { filePath, entry } : null;
+      }),
+  );
+  return rows.filter((row): row is { filePath: string; entry: SessionMemoryMcpRawEntry } =>
+    Boolean(row),
+  );
+}
+
+export async function sweepExpiredSessionMemoryMcpRawEntries(params: {
+  agentId: string;
+  sessionId: string;
+  now: number;
+}): Promise<SessionMemoryMcpRawEntry[]> {
+  const mcpEntries = await readSessionMemoryMcpRawEntries(params);
+  const expired = mcpEntries.filter(({ entry }) => {
     const expiresAt = Date.parse(entry.expiresAt);
     return Number.isFinite(expiresAt) && expiresAt <= params.now;
   });

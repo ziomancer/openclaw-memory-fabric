@@ -70,3 +70,54 @@ export function resolveSessionSanitizationAvailability(params: {
 export function hasConfiguredSessionSanitizationModel(cfg?: OpenClawConfig): boolean {
   return Boolean(resolveAgentModelPrimaryValue(resolveSessionSanitizationConfig(cfg).model));
 }
+
+export type ResolvedSessionSanitizationMcpConfig = {
+  enabled: boolean;
+  trustedServers: string[];
+  blockOnSandboxUnavailable: boolean;
+};
+
+export function resolveSessionSanitizationMcpConfig(
+  cfg: OpenClawConfig | undefined,
+): ResolvedSessionSanitizationMcpConfig {
+  const mcp = cfg?.memory?.sessions?.sanitization?.mcp;
+  return {
+    enabled: mcp?.enabled === true,
+    trustedServers: Array.isArray(mcp?.trustedServers) ? mcp.trustedServers : [],
+    blockOnSandboxUnavailable: mcp?.blockOnSandboxUnavailable !== false,
+  };
+}
+
+export function isMcpServerTrusted(params: {
+  cfg: OpenClawConfig | undefined;
+  server: string;
+}): boolean {
+  const { trustedServers } = resolveSessionSanitizationMcpConfig(params.cfg);
+  return trustedServers.includes(params.server);
+}
+
+export const UNKNOWN_MCP_SERVER = "unknown";
+
+/**
+ * Resolve the server name for a given tool by scanning `cfg.mcpServers`.
+ * Returns the server identifier if a server claims the tool, or
+ * `UNKNOWN_MCP_SERVER` ("unknown") when no server claims it.
+ *
+ * Lookup is by exact tool-name match.  The first server whose `tools` list
+ * contains the tool name wins (iteration order = config declaration order).
+ */
+export function resolveToolServer(cfg: OpenClawConfig | undefined, toolName: string): string {
+  const registry = cfg?.mcpServers;
+  if (!registry || typeof registry !== "object") {
+    return UNKNOWN_MCP_SERVER;
+  }
+  for (const [serverName, entry] of Object.entries(registry)) {
+    if (
+      Array.isArray(entry?.tools) &&
+      entry.tools.some((t) => typeof t === "string" && t === toolName)
+    ) {
+      return serverName;
+    }
+  }
+  return UNKNOWN_MCP_SERVER;
+}

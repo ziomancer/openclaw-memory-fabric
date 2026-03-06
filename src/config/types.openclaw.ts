@@ -14,6 +14,7 @@ import type {
   TalkConfig,
 } from "./types.gateway.js";
 import type { HooksConfig } from "./types.hooks.js";
+import type { McpServersConfig } from "./types.mcp-servers.js";
 import type { MemoryConfig } from "./types.memory.js";
 import type {
   AudioConfig,
@@ -114,6 +115,8 @@ export type OpenClawConfig = {
   talk?: TalkConfig;
   gateway?: GatewayConfig;
   memory?: MemoryConfig;
+  /** MCP server registry: maps server names to the tool names they expose. */
+  mcpServers?: McpServersConfig;
 };
 
 export type ConfigValidationIssue = {

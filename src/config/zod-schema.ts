@@ -88,12 +88,29 @@ const MemoryQmdMcporterSchema = z
   })
   .strict();
 
+const McpServerEntrySchema = z
+  .object({
+    tools: z.array(z.string()),
+  })
+  .strict();
+
+export const McpServersSchema = z.record(z.string(), McpServerEntrySchema).optional();
+
+const MemorySessionSanitizationMcpSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    trustedServers: z.array(z.string()).optional(),
+    blockOnSandboxUnavailable: z.boolean().optional(),
+  })
+  .strict();
+
 const MemorySessionSanitizationSchema = z
   .object({
     enabled: z.boolean().optional(),
     model: AgentModelSchema.optional(),
     thinking: z.string().optional(),
     rawMaxAge: z.string().optional(),
+    mcp: MemorySessionSanitizationMcpSchema.optional(),
   })
   .strict();
 
@@ -783,6 +800,7 @@ export const OpenClawSchema = z
       .strict()
       .optional(),
     memory: MemorySchema,
+    mcpServers: McpServersSchema,
     skills: z
       .object({
         allowBundled: z.array(z.string()).optional(),

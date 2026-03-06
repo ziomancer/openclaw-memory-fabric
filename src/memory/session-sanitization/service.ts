@@ -3,21 +3,27 @@ import { fireAndForgetHook } from "../../hooks/fire-and-forget.js";
 import type { CanonicalInboundMessageHookContext } from "../../hooks/message-hook-mappers.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import {
+  isMcpServerTrusted,
   resolveSessionSanitizationAvailability,
   resolveSessionSanitizationConfig,
+  resolveSessionSanitizationMcpConfig,
 } from "./config.js";
 import { runSessionSanitizationHelper, type SanitizationRunner } from "./runtime.js";
 import {
   appendSessionMemoryAuditEntry,
-  appendSessionMemorySummaryEntry,
+  upsertSessionMemorySummaryEntry,
   deleteSessionMemoryArtifacts,
   readSessionMemoryRawEntries,
   readSessionMemorySummaryEntries,
+  sweepExpiredSessionMemoryMcpRawEntries,
   sweepExpiredSessionMemoryRawEntries,
+  writeSessionMemoryMcpRawEntry,
   writeSessionMemoryRawEntry,
 } from "./storage.js";
+import { runTier1PreFilter } from "./tier1.js";
 import type {
   SessionMemoryConfidence,
+  SessionMemoryMcpChildResult,
   SessionMemoryRawEntry,
   SessionMemoryRecallChildResult,
   SessionMemoryRecallResult,
@@ -368,7 +374,7 @@ export async function writeTranscriptTurnToSessionMemory(params: {
       contextNote: child.contextNote,
       discard: false,
     };
-    await appendSessionMemorySummaryEntry({
+    await upsertSessionMemorySummaryEntry({
       agentId: params.agentId,
       sessionId: params.sessionId,
       entry: summaryEntry,
@@ -635,4 +641,325 @@ export async function cleanupSessionSanitizationArtifacts(params: {
     agentId: params.agentId,
     sessionId: params.sessionId,
   });
+}
+
+// ---------------------------------------------------------------------------
+// MCP result sanitization
+// ---------------------------------------------------------------------------
+
+export type McpProcessResult = {
+  /** True if the server was on the trusted list (no sanitization performed). */
+  trusted: boolean;
+  /** True if the result is safe to pass to the manager. */
+  safe: boolean;
+  /** Sanitized structured content. Empty object if not safe. */
+  structuredResult: Record<string, unknown>;
+  /** Flags from the tier that produced the result. */
+  flags: string[];
+  /** Brief description for audit and logging. */
+  contextNote: string;
+  /** Which tier blocked or passed the result (undefined for trusted results). */
+  tier?: 1 | 2;
+};
+
+const SESSION_CONTEXT_MAX_ENTRIES = 10;
+const SESSION_CONTEXT_WINDOW_MS = 30 * 60 * 1000;
+
+function buildRecentSessionContext(
+  summaries: SessionMemorySummaryEntry[],
+  now: number,
+): SessionMemorySummaryEntry[] {
+  const windowStart = now - SESSION_CONTEXT_WINDOW_MS;
+  const last30min = summaries.filter((e) => {
+    const ts = Date.parse(e.timestamp);
+    return Number.isFinite(ts) && ts >= windowStart;
+  });
+  const last10 = summaries.slice(-SESSION_CONTEXT_MAX_ENTRIES);
+  return last30min.length <= last10.length ? last30min : last10;
+}
+
+function buildBlockedResult(flags: string[], contextNote: string, tier: 1 | 2): McpProcessResult {
+  return { trusted: false, safe: false, structuredResult: {}, flags, contextNote, tier };
+}
+
+export async function processMcpToolResult(params: {
+  cfg: OpenClawConfig;
+  agentId: string;
+  sessionId: string;
+  server: string;
+  toolCallId: string;
+  toolName: string;
+  rawResult: unknown;
+  /** The original tool call (query.json for the sub-agent workspace). */
+  query: unknown;
+  helperDeps?: HelperDeps;
+}): Promise<McpProcessResult> {
+  const mcpCfg = resolveSessionSanitizationMcpConfig(params.cfg);
+  if (!mcpCfg.enabled) {
+    // Feature disabled — pass through without sanitization.
+    return {
+      trusted: false,
+      safe: true,
+      structuredResult:
+        params.rawResult !== null && typeof params.rawResult === "object"
+          ? (params.rawResult as Record<string, unknown>)
+          : {},
+      flags: [],
+      contextNote: "mcp sanitization disabled",
+    };
+  }
+
+  const now = params.helperDeps?.now?.() ?? Date.now();
+  const sanitizationCfg = resolveSessionSanitizationConfig(params.cfg);
+
+  // Trusted list fast path.
+  if (
+    isMcpServerTrusted({
+      cfg: params.cfg,
+      server: params.server,
+    })
+  ) {
+    await appendSessionMemoryAuditEntry({
+      agentId: params.agentId,
+      sessionId: params.sessionId,
+      entry: {
+        event: "trusted_pass",
+        timestamp: nowIso(now),
+        server: params.server,
+        toolCallId: params.toolCallId,
+      },
+    });
+    return {
+      trusted: true,
+      safe: true,
+      structuredResult:
+        params.rawResult !== null && typeof params.rawResult === "object"
+          ? (params.rawResult as Record<string, unknown>)
+          : {},
+      flags: [],
+      contextNote: `trusted server: ${params.server}`,
+    };
+  }
+
+  // Sandbox availability check for untrusted servers.
+  const availability = resolveSessionSanitizationAvailability({
+    cfg: params.cfg,
+    agentId: params.agentId,
+  });
+  if (!availability.available) {
+    if (mcpCfg.blockOnSandboxUnavailable) {
+      log.warn("mcp sanitization: sandbox unavailable, blocking untrusted result", {
+        agentId: params.agentId,
+        server: params.server,
+        toolCallId: params.toolCallId,
+      });
+      return buildBlockedResult(
+        ["sandbox isolation unavailable — untrusted result blocked"],
+        "blocked: sandbox unavailable",
+        1,
+      );
+    }
+    log.warn(
+      "mcp sanitization: sandbox unavailable and blockOnSandboxUnavailable=false, passing through",
+      { agentId: params.agentId, server: params.server },
+    );
+    return {
+      trusted: false,
+      safe: true,
+      structuredResult:
+        params.rawResult !== null && typeof params.rawResult === "object"
+          ? (params.rawResult as Record<string, unknown>)
+          : {},
+      flags: ["sandbox unavailable — sanitization skipped per config"],
+      contextNote: "sandbox unavailable, sanitization skipped",
+    };
+  }
+
+  // Sweep expired MCP raw entries before writing a new one.
+  await sweepExpiredSessionMemoryMcpRawEntries({
+    agentId: params.agentId,
+    sessionId: params.sessionId,
+    now,
+  });
+
+  // Tier 1 structural pre-filter.
+  const tier1 = runTier1PreFilter({ rawResult: params.rawResult });
+
+  if (tier1.blocked) {
+    // Write raw mirror with safe: false.
+    await writeSessionMemoryMcpRawEntry({
+      agentId: params.agentId,
+      sessionId: params.sessionId,
+      entry: {
+        toolCallId: params.toolCallId,
+        timestamp: nowIso(now),
+        expiresAt: nowIso(now + sanitizationCfg.rawMaxAgeMs),
+        server: params.server,
+        toolName: params.toolName,
+        rawResult: params.rawResult,
+        sanitizedResult: {},
+        safe: false,
+        flags: tier1.blockFlags,
+      },
+    });
+    await appendSessionMemoryAuditEntry({
+      agentId: params.agentId,
+      sessionId: params.sessionId,
+      entry: {
+        event: "structural_block",
+        timestamp: nowIso(now),
+        server: params.server,
+        toolCallId: params.toolCallId,
+        tier: 1,
+        flags: tier1.blockFlags,
+      },
+    });
+    return buildBlockedResult(tier1.blockFlags, tier1.contextNote, 1);
+  }
+
+  // Tier 2 — sanitization sub-agent.
+  const summaries = await readSessionMemorySummaryEntries({
+    agentId: params.agentId,
+    sessionId: params.sessionId,
+  });
+  const sessionContext = buildRecentSessionContext(summaries, now);
+
+  const workspaceFiles: Array<{ relativePath: string; content: string }> = [
+    {
+      relativePath: "query.json",
+      content: JSON.stringify(params.query, null, 2),
+    },
+    {
+      relativePath: "mcp-result.json",
+      content: JSON.stringify(params.rawResult, null, 2),
+    },
+    ...(sessionContext.length > 0
+      ? [
+          {
+            relativePath: "session-context.jsonl",
+            content: buildJsonLines(sessionContext),
+          },
+        ]
+      : []),
+    ...(tier1.annotationFlags.length > 0
+      ? [
+          {
+            relativePath: "tier1-annotations.json",
+            content: JSON.stringify(
+              {
+                flags: tier1.annotationFlags,
+                patternsMatched: tier1.patternsMatched.filter((id) =>
+                  tier1.annotationFlags.some((f) => f.startsWith(id)),
+                ),
+              },
+              null,
+              2,
+            ),
+          },
+        ]
+      : []),
+  ];
+
+  let child: SessionMemoryMcpChildResult;
+  try {
+    child = await runSessionSanitizationHelper<SessionMemoryMcpChildResult>({
+      cfg: params.cfg,
+      agentId: params.agentId,
+      mode: "mcp",
+      lane: params.helperDeps?.lane ?? "background:session-memory-mcp",
+      runner: params.helperDeps?.runner,
+      files: workspaceFiles,
+    });
+  } catch (error) {
+    log.warn("mcp sanitization: sub-agent failed", {
+      agentId: params.agentId,
+      server: params.server,
+      toolCallId: params.toolCallId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    // Fail closed — treat sub-agent failure as a block.
+    await appendSessionMemoryAuditEntry({
+      agentId: params.agentId,
+      sessionId: params.sessionId,
+      entry: {
+        event: "sanitized_block",
+        timestamp: nowIso(now),
+        server: params.server,
+        toolCallId: params.toolCallId,
+        tier: 2,
+        flags: ["sub-agent error"],
+      },
+    });
+    return buildBlockedResult(["sanitization sub-agent failed"], "blocked: sub-agent error", 2);
+  }
+
+  // Write raw mirror with final known state.
+  await writeSessionMemoryMcpRawEntry({
+    agentId: params.agentId,
+    sessionId: params.sessionId,
+    entry: {
+      toolCallId: params.toolCallId,
+      timestamp: nowIso(now),
+      expiresAt: nowIso(now + sanitizationCfg.rawMaxAgeMs),
+      server: params.server,
+      toolName: params.toolName,
+      rawResult: params.rawResult,
+      sanitizedResult: child.safe ? child.structuredResult : {},
+      safe: child.safe,
+      flags: child.flags,
+    },
+  });
+
+  if (!child.safe) {
+    await appendSessionMemoryAuditEntry({
+      agentId: params.agentId,
+      sessionId: params.sessionId,
+      entry: {
+        event: "sanitized_block",
+        timestamp: nowIso(now),
+        server: params.server,
+        toolCallId: params.toolCallId,
+        tier: 2,
+        flags: child.flags,
+      },
+    });
+    return buildBlockedResult(child.flags, child.contextNote, 2);
+  }
+
+  // Safe: append summary entry and log pass.
+  const summaryEntry: SessionMemorySummaryEntry = {
+    messageId: params.toolCallId,
+    timestamp: nowIso(now),
+    rawExpiresAt: nowIso(now + sanitizationCfg.rawMaxAgeMs),
+    decisions: [],
+    actionItems: [],
+    entities: [],
+    contextNote: child.contextNote || undefined,
+    discard: false,
+  };
+  await upsertSessionMemorySummaryEntry({
+    agentId: params.agentId,
+    sessionId: params.sessionId,
+    entry: summaryEntry,
+  });
+  await appendSessionMemoryAuditEntry({
+    agentId: params.agentId,
+    sessionId: params.sessionId,
+    entry: {
+      event: "sanitized_pass",
+      timestamp: nowIso(now),
+      server: params.server,
+      toolCallId: params.toolCallId,
+      tier: 2,
+    },
+  });
+
+  return {
+    trusted: false,
+    safe: true,
+    structuredResult: child.structuredResult,
+    flags: child.flags,
+    contextNote: child.contextNote,
+    tier: 2,
+  };
 }

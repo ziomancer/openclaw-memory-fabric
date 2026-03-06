@@ -3,7 +3,7 @@ import { z } from "zod";
 export const SESSION_MEMORY_CONFIDENCE_VALUES = ["high", "medium", "low"] as const;
 export type SessionMemoryConfidence = (typeof SESSION_MEMORY_CONFIDENCE_VALUES)[number];
 
-export const SESSION_MEMORY_CHILD_MODES = ["write", "recall", "signal"] as const;
+export const SESSION_MEMORY_CHILD_MODES = ["write", "recall", "signal", "mcp"] as const;
 export type SessionMemoryChildMode = (typeof SESSION_MEMORY_CHILD_MODES)[number];
 
 export type SessionMemoryRawEntry = {
@@ -37,13 +37,48 @@ export type SessionMemorySummaryEntry = {
   discard: boolean;
 };
 
-export type SessionMemoryAuditEvent = "write" | "discard" | "write_failed" | "raw_expired";
+export type SessionMemoryAuditEvent =
+  | "write"
+  | "discard"
+  | "write_failed"
+  | "raw_expired"
+  | "trusted_pass"
+  | "structural_block"
+  | "sanitized_pass"
+  | "sanitized_block"
+  | "mcp_raw_expired";
 
 export type SessionMemoryAuditEntry = {
   event: SessionMemoryAuditEvent;
   timestamp: string;
   messageId?: string;
   reason?: string;
+  /** MCP-specific audit fields */
+  server?: string;
+  toolCallId?: string;
+  /** Which tier produced the result: 1 (Tier 1 pre-filter) or 2 (sub-agent). */
+  tier?: 1 | 2;
+  flags?: string[];
+};
+
+export type SessionMemoryMcpRawEntry = {
+  toolCallId: string;
+  timestamp: string;
+  expiresAt: string;
+  server: string;
+  toolName: string;
+  rawResult: unknown;
+  sanitizedResult: unknown;
+  safe: boolean;
+  flags: string[];
+};
+
+export type SessionMemoryMcpChildResult = {
+  mode: "mcp";
+  safe: boolean;
+  structuredResult: Record<string, unknown>;
+  flags: string[];
+  contextNote: string;
 };
 
 export type SessionMemoryWriteResult = {
@@ -145,9 +180,47 @@ export const sessionMemorySummaryEntrySchema = z
 
 export const sessionMemoryAuditEntrySchema = z
   .object({
-    event: z.enum(["write", "discard", "write_failed", "raw_expired"]),
+    event: z.enum([
+      "write",
+      "discard",
+      "write_failed",
+      "raw_expired",
+      "trusted_pass",
+      "structural_block",
+      "sanitized_pass",
+      "sanitized_block",
+      "mcp_raw_expired",
+    ]),
     timestamp: z.string(),
     messageId: z.string().optional(),
     reason: z.string().optional(),
+    server: z.string().optional(),
+    toolCallId: z.string().optional(),
+    tier: z.union([z.literal(1), z.literal(2)]).optional(),
+    flags: z.array(z.string()).optional(),
+  })
+  .strict();
+
+export const sessionMemoryMcpRawEntrySchema = z
+  .object({
+    toolCallId: z.string(),
+    timestamp: z.string(),
+    expiresAt: z.string(),
+    server: z.string(),
+    toolName: z.string(),
+    rawResult: z.unknown(),
+    sanitizedResult: z.unknown(),
+    safe: z.boolean(),
+    flags: z.array(z.string()),
+  })
+  .strict();
+
+export const sessionMemoryMcpChildResultSchema = z
+  .object({
+    mode: z.literal("mcp"),
+    safe: z.boolean(),
+    structuredResult: z.record(z.string(), z.unknown()),
+    flags: z.array(z.string()),
+    contextNote: z.string(),
   })
   .strict();

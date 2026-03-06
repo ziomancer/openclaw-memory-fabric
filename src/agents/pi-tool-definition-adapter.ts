@@ -4,7 +4,11 @@ import type {
   AgentToolUpdateCallback,
 } from "@mariozechner/pi-agent-core";
 import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
+import type { OpenClawConfig } from "../config/config.js";
 import { logDebug, logError } from "../logger.js";
+import { createSubsystemLogger } from "../logging/subsystem.js";
+import { resolveToolServer } from "../memory/session-sanitization/config.js";
+import { processMcpToolResult } from "../memory/session-sanitization/service.js";
 import { isPlainObject } from "../utils.js";
 import type { ClientToolDefinition } from "./pi-embedded-runner/run/params.js";
 import type { HookContext } from "./pi-tools.before-tool-call.js";
@@ -14,6 +18,8 @@ import {
 } from "./pi-tools.before-tool-call.js";
 import { normalizeToolName } from "./tool-policy.js";
 import { jsonResult } from "./tools/common.js";
+
+const mcpLog = createSubsystemLogger("agents/mcp-tool-wrap");
 
 type AnyAgentTool = AgentTool;
 
@@ -191,6 +197,111 @@ export function toToolDefinitions(tools: AnyAgentTool[]): ToolDefinition[] {
       },
     } satisfies ToolDefinition;
   });
+}
+
+/**
+ * Re-wrap any ToolDefinition whose name is claimed by a server in
+ * `cfg.mcpServers` so that its `execute()` passes the raw result through
+ * `processMcpToolResult` before returning to the agent session.
+ *
+ * - Definitions not claimed by any server are returned unchanged.
+ * - If `safe: false`, a structured error block is returned so the manager
+ *   sees a clear signal rather than raw adversarial content.
+ * - If `safe: true`, the sanitized structuredResult is returned as text.
+ * - When MCP sanitization is not enabled or no servers are declared, the
+ *   array is returned as-is (zero allocation path).
+ */
+export function wrapMcpToolDefinitions(
+  defs: ToolDefinition[],
+  params: {
+    cfg: OpenClawConfig;
+    agentId: string;
+    sessionId: string;
+    lane?: string;
+  },
+): ToolDefinition[] {
+  const registry = params.cfg.mcpServers;
+  if (!registry || typeof registry !== "object" || Object.keys(registry).length === 0) {
+    return defs;
+  }
+
+  let changed = false;
+  const next = defs.map((def) => {
+    const server = resolveToolServer(params.cfg, def.name);
+    // Only wrap tools explicitly claimed by a declared server; skip "unknown".
+    if (server === "unknown") {
+      return def;
+    }
+    changed = true;
+    const originalExecute = def.execute;
+    return {
+      ...def,
+      execute: async (
+        ...args: Parameters<ToolDefinition["execute"]>
+      ): Promise<AgentToolResult<unknown>> => {
+        const rawResult = await originalExecute(...args);
+        // args[0] is always the toolCallId regardless of legacy/current arg order.
+        const toolCallId = typeof args[0] === "string" ? args[0] : "unknown";
+        // args[1] is always the params object.
+        const toolParams = args[1] ?? {};
+        let mcpResult;
+        try {
+          mcpResult = await processMcpToolResult({
+            cfg: params.cfg,
+            agentId: params.agentId,
+            sessionId: params.sessionId,
+            server,
+            toolCallId,
+            toolName: def.name,
+            rawResult,
+            query: { server, tool: def.name, params: toolParams },
+            helperDeps: { lane: params.lane ?? "background:session-memory-mcp" },
+          });
+        } catch (err) {
+          mcpLog.warn("processMcpToolResult threw — failing closed", {
+            server,
+            tool: def.name,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return jsonResult({
+            status: "error",
+            tool: def.name,
+            error: "MCP result blocked: sanitization helper failed",
+            server,
+          });
+        }
+
+        if (!mcpResult.safe) {
+          mcpLog.warn("MCP result blocked by sanitization", {
+            server,
+            tool: def.name,
+            tier: mcpResult.tier,
+            flags: mcpResult.flags,
+          });
+          return jsonResult({
+            status: "error",
+            tool: def.name,
+            error: "MCP result blocked by sanitization",
+            server,
+            flags: mcpResult.flags,
+            contextNote: mcpResult.contextNote,
+          });
+        }
+
+        if (mcpResult.trusted) {
+          return rawResult as AgentToolResult<unknown>;
+        }
+
+        return jsonResult(
+          Object.keys(mcpResult.structuredResult).length > 0
+            ? mcpResult.structuredResult
+            : { status: "ok", tool: def.name, contextNote: mcpResult.contextNote },
+        );
+      },
+    } satisfies ToolDefinition;
+  });
+
+  return changed ? next : defs;
 }
 
 // Convert client tools (OpenResponses hosted tools) to ToolDefinition format
