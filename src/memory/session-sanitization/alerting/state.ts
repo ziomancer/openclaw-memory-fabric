@@ -61,11 +61,22 @@ export function buildDedupKey(ruleId: string, agentId: string, sessionId: string
 /** Returns true if an alert with this key fired within the suppression window. */
 export function isDeduped(key: string, windowMs: number, now: number): boolean {
   const last = dedupState.get(key);
-  return last !== undefined && now - last < windowMs;
+  if (last === undefined) return false;
+  if (now - last >= windowMs) {
+    dedupState.delete(key);
+    return false;
+  }
+  return true;
 }
 
 /** Record that an alert with this key was just fired. */
-export function recordFired(key: string, now: number): void {
+export function recordFired(key: string, now: number, suppressionWindowMs?: number): void {
+  if (typeof suppressionWindowMs === "number" && Number.isFinite(suppressionWindowMs)) {
+    const cutoff = now - suppressionWindowMs;
+    for (const [dedupKey, firedAt] of dedupState) {
+      if (firedAt < cutoff) dedupState.delete(dedupKey);
+    }
+  }
   dedupState.set(key, now);
 }
 

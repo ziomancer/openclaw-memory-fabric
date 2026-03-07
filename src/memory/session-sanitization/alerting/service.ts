@@ -102,12 +102,15 @@ export function notifyAlerting(params: {
     }
 
     // Record fire + delivery before async delivery to prevent double-fire
-    recordFired(dedupKey, params.now);
+    recordFired(dedupKey, params.now, alertingCfg.suppression.windowMs);
     recordDelivery(alert.ruleId, params.now);
     incrementDailyCount(alert.ruleId, params.now);
 
     // Log channel (always on) — fire-and-forget
-    appendAlertLogEntry(alert, params.agentId).catch((err) => {
+    appendAlertLogEntry(alert, params.agentId, {
+      retentionDays: alertingCfg.retention.days,
+      now: params.now,
+    }).catch((err) => {
       log.warn("alerting: log write error", {
         alertId: alert!.alertId,
         ruleId: alert!.ruleId,

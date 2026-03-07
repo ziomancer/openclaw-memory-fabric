@@ -239,6 +239,20 @@ describe("deduplication state", () => {
     recordFired(key1, NOW);
     expect(isDeduped(key2, 300_000, NOW)).toBe(false);
   });
+
+  it("recordFired prunes stale keys when suppression window is provided", () => {
+    const staleKey = buildDedupKey("rule-old", AGENT_ID, "old-session");
+    const freshKey = buildDedupKey("rule-fresh", AGENT_ID, SESSION_ID);
+    const triggerKey = buildDedupKey("rule-trigger", AGENT_ID, "new-session");
+
+    recordFired(staleKey, NOW - 400_000);
+    recordFired(freshKey, NOW - 10_000);
+    recordFired(triggerKey, NOW, 300_000);
+
+    // If staleKey were only checked lazily, this would still be true.
+    expect(isDeduped(staleKey, 3_600_000, NOW)).toBe(false);
+    expect(isDeduped(freshKey, 300_000, NOW)).toBe(true);
+  });
 });
 
 describe("rate limiting state", () => {
@@ -747,6 +761,56 @@ describe("log channel", () => {
     };
     // Should not throw even though directories don't exist yet
     await expect(appendAlertLogEntry(payload, "new-agent")).resolves.toBeUndefined();
+  });
+
+  it("enforces retention by pruning expired alerts before append", async () => {
+    const { appendAlertLogEntry } = await import("./log.js");
+    const oldTs = new Date(NOW - 40 * 24 * 60 * 60 * 1000).toISOString();
+    const freshTs = new Date(NOW - 1 * 24 * 60 * 60 * 1000).toISOString();
+
+    await appendAlertLogEntry(
+      {
+        alertId: "old-alert",
+        ruleId: "writeFailSpike",
+        severity: "medium",
+        agentId: AGENT_ID,
+        sessionId: SESSION_ID,
+        timestamp: oldTs,
+        summary: "expired",
+        details: { triggeringEvents: [], recentContext: [] },
+        metadata: { ruleConfig: {} },
+      },
+      AGENT_ID,
+      { retentionDays: 30, now: NOW },
+    );
+
+    await appendAlertLogEntry(
+      {
+        alertId: "fresh-alert",
+        ruleId: "syntacticFailBurst",
+        severity: "high",
+        agentId: AGENT_ID,
+        sessionId: SESSION_ID,
+        timestamp: freshTs,
+        summary: "fresh",
+        details: { triggeringEvents: [], recentContext: [] },
+        metadata: { ruleConfig: {} },
+      },
+      AGENT_ID,
+      { retentionDays: 30, now: NOW },
+    );
+
+    const files = await fs.readdir(tempDir, { recursive: true });
+    const logFile = files.find((f) => String(f).endsWith("alerts.jsonl"));
+    expect(logFile).toBeDefined();
+    const contents = await fs.readFile(path.join(tempDir, String(logFile)), "utf8");
+    const entries = contents
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { alertId: string });
+
+    expect(entries.map((entry) => entry.alertId)).toEqual(["fresh-alert"]);
   });
 });
 
