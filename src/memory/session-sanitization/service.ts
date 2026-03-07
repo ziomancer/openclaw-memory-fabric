@@ -1618,47 +1618,25 @@ export async function processMcpToolResult(params: {
     );
   }
 
-  if (trustedServer) {
-    await gatedAudit(
-      {
-        agentId: params.agentId,
-        sessionId: params.sessionId,
-        entry: {
-          event: "trusted_pass",
-          timestamp: nowIso(now),
-          server: params.server,
-          toolCallId: params.toolCallId,
-        },
-      },
-      auditVerbosity,
-      alertDeps,
-      auditEnabled,
-    );
-    return {
-      trusted: true,
-      safe: true,
-      structuredResult:
-        params.rawResult !== null && typeof params.rawResult === "object"
-          ? (params.rawResult as Record<string, unknown>)
-          : {},
-      flags: [],
-      contextNote: `trusted server: ${params.server}`,
-    };
-  }
-
-  // --- Frequency tracking update ---
-  let mcpFrequencyTier: EscalationTier = "none";
-  let mcpFrequencyScore = 0;
+  // Always check for already-terminated sessions — trusted servers do not exempt
+  // a terminated session.
   if (validationCfg.frequency.enabled) {
-    // Always check for already-terminated sessions — even clean payloads must be blocked.
     const existingFreqState = sessionFrequencyState.get(params.sessionId);
     if (existingFreqState?.terminated) {
-      mcpFrequencyTier = "tier3";
-      mcpFrequencyScore = existingFreqState.lastScore;
-    } else if (mcpPreFilter.allRuleIds.length > 0) {
-      const freq = updateFrequencyScore(
-        params.sessionId,
-        mcpPreFilter.allRuleIds,
+      return {
+        ...buildBlockedResult(
+          ["session terminated: sustained suspicious input frequency"],
+          "blocked: session terminated (frequency tier3)",
+          1,
+        ),
+        terminated: true,
+      };
+    }
+  }
+
+  if (trustedServer) {
+    // … existing trusted_pass audit + return
+  }
         now,
         validationCfg.frequency,
       );
