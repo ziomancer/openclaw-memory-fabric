@@ -299,6 +299,14 @@ describe("tier1 — CRED credential patterns", () => {
     const r = run({ label: "aaaaaaaaaaaaaaaaaaaaaaaaa" });
     expect(r.patternsMatched).not.toContain("CRED-008");
   });
+
+  it("CRED-008: does not fire on CJK strings (non-Latin false-positive guard)", () => {
+    // Japanese text — high character variety is normal; should never trigger credential detection
+    const r = run({
+      summary: "東京の天気は今日晴れています。空が青く美しい景色が広がっています。近くの公園",
+    });
+    expect(r.patternsMatched).not.toContain("CRED-008");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -535,6 +543,13 @@ describe("tier1 — STRUCT structural topology", () => {
       obj[`field_${i}`] = "value";
     }
     const r = run(obj);
+    expect(r.patternsMatched).not.toContain("STRUCT-002");
+  });
+
+  it("STRUCT-002: paginated array of objects does not trigger field-count check", () => {
+    // 41 rows × 5 fields = 205 field occurrences across the array, but STRUCT-002 only
+    // checks top-level objects. Arrays are excluded from the field-count gate.
+    const r = run(Array(41).fill({ a: 1, b: 2, c: 3, d: 4, e: 5 }));
     expect(r.patternsMatched).not.toContain("STRUCT-002");
   });
 

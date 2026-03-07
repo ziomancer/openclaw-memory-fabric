@@ -1497,6 +1497,14 @@ export async function processMcpToolResult(params: {
     schemaEnabled: validationCfg.schema.enabled,
   });
 
+  // Pre-filter and its audit events (syntactic_fail, rule_triggered, flags_summary) run for ALL
+  // servers, including trusted ones. The trusted-server fast path below only skips semantic Tier 2
+  // analysis — it does not short-circuit syntactic auditing or frequency tracking.
+  //
+  // Design rationale: full audit visibility is required regardless of server trust level, so that
+  // anomalous content from trusted servers remains observable. As a side effect, syntacticFailBurst
+  // (Rule 1) and other alerting rules can fire for trusted servers that produce injection-like
+  // content — this is intentional and expected behaviour.
   // Emit syntactic audit events
   if (validationCfg.syntactic.enabled) {
     const syntacticEvent = !mcpPreFilter.syntactic.pass
