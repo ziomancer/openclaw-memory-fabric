@@ -77,7 +77,7 @@ const CAPABILITY_GRANTS: ReadonlyArray<RegExp> = [
 // Base64 pattern: string of base64 chars ≥ 30 chars (roughly ≥ 22 raw bytes),
 // tolerating whitespace between chunks. Excludes field names that legitimately
 // hold binary content.
-const BASE64_CONTENT_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+const BASE64_CONTENT_RE = /^(?:[A-Za-z0-9+/\-_]{4})*(?:[A-Za-z0-9+/\-_]{2}==|[A-Za-z0-9+/\-_]{3}=?)?$/;
 const BASE64_MIN_LEN = 60; // below this length, false-positive rate too high
 const KNOWN_BINARY_FIELD_NAMES = new Set([
   "data",
