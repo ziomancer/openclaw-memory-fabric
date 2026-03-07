@@ -546,13 +546,12 @@ describe("tier1 — STRUCT structural topology", () => {
     expect(r.patternsMatched).not.toContain("STRUCT-003");
   });
 
-  it("STRUCT-004: duplicate JSON key detected by heuristic", () => {
-    // JSON.parse deduplicates keys, so we must test via the serialized string path.
-    // We can't easily produce a parsed object with duplicate keys, but we can test
-    // by passing a value that when serialized would appear to have duplicate keys.
-    // Since JSON.parse eliminates duplicates, STRUCT-004 is a heuristic on re-serialized content.
-    // A plain parsed object will never have duplicates — this is noted in the implementation.
-    // Verify the clean case: no STRUCT-004 for a normal object.
+  it("STRUCT-003: does not match across separate field names", () => {
+    const r = run({ ignore: "x", previous: "y", instructions: "z" });
+    expect(r.patternsMatched).not.toContain("STRUCT-003");
+  });
+
+  it("STRUCT-004: duplicate-key detection is deferred for parsed objects", () => {
     const r = run({ a: 1, b: 2, c: 3 });
     expect(r.patternsMatched).not.toContain("STRUCT-004");
   });

@@ -439,11 +439,7 @@ function checkEncodingPatterns(serialized: string, values: string[], acc: CheckA
 const STRUCT001_MAX_DEPTH = 10;
 const STRUCT002_MAX_FIELDS = 200;
 
-function checkStructuralTopology(
-  rawResult: unknown,
-  serialized: string,
-  acc: CheckAccumulator,
-): void {
+function checkStructuralTopology(rawResult: unknown, acc: CheckAccumulator): void {
   // STRUCT-001: excessive nesting depth
   const depth = measureNestingDepth(rawResult);
   if (depth > STRUCT001_MAX_DEPTH) {
@@ -466,30 +462,23 @@ function checkStructuralTopology(
 
   // STRUCT-003: apply injection patterns against field names
   const fieldNames = collectFieldNames(rawResult);
-  const fieldNamesStr = fieldNames.join("\n");
-  for (const { id, re } of INJECTION_PATTERNS) {
-    if (re.test(fieldNamesStr)) {
-      addBlock(acc, "STRUCT-003", `STRUCT-003: injection pattern ${id} matched in a field name`);
-      break;
+  for (const fieldName of fieldNames) {
+    for (const { id, re } of INJECTION_PATTERNS) {
+      if (re.test(fieldName)) {
+        addBlock(
+          acc,
+          "STRUCT-003",
+          `STRUCT-003: injection pattern ${id} matched in field name "${fieldName}"`,
+        );
+        return;
+      }
     }
   }
 
-  // STRUCT-004: duplicate key detection — only check top-level keys.
-  // Flat collection across all nesting levels false-positives on arrays of
-  // objects that share key names (e.g. query result rows). Arrays get an
-  // empty key list; only non-array objects have their top-level keys checked.
-  const keys =
-    rawResult !== null && typeof rawResult === "object" && !Array.isArray(rawResult)
-      ? Object.keys(rawResult as Record<string, unknown>)
-      : [];
-  const seen = new Set<string>();
-  for (const key of keys) {
-    if (seen.has(key)) {
-      addBlock(acc, "STRUCT-004", `STRUCT-004: duplicate JSON key detected: "${key}"`);
-      break;
-    }
-    seen.add(key);
-  }
+  // STRUCT-004 intentionally deferred:
+  // duplicate JSON keys are lost before this check runs because `rawResult` is
+  // already parsed into a JS object (last-write-wins). Detecting duplicates
+  // requires scanning raw JSON text before parse.
 }
 
 // ---------------------------------------------------------------------------
@@ -537,7 +526,7 @@ export function runTier1PreFilter(params: Tier1Params): Tier1CheckResult {
   checkPayloadSize(serialized, stringValues, sizeThreshold, fieldSizeThreshold, acc);
   checkContentTypes(stringValues, acc);
   checkEncodingPatterns(serialized, stringValues, acc);
-  checkStructuralTopology(params.rawResult, serialized, acc);
+  checkStructuralTopology(params.rawResult, acc);
 
   const blocked = acc.blockFlags.length > 0;
   const contextNote = blocked
