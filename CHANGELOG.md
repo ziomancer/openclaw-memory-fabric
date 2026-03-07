@@ -89,6 +89,7 @@ Docs: https://docs.openclaw.ai
 - Auto-reply/system events: restore runtime system events to the message timeline (`System:` lines), preserve think-hint parsing with prepended events, and carry events into deferred followup/collect/steer-backlog prompts to keep cache behavior stable without dropping queued metadata. (#34794) Thanks @anisoptera.
 - Security/audit account handling: avoid prototype-chain account IDs in audit validation by using own-property checks for `accounts`. (#34982) Thanks @HOYALIM.
 - Cron/restart catch-up semantics: replay interrupted recurring jobs and missed immediate cron slots on startup without replaying interrupted one-shot jobs, with guarded missed-slot probing to avoid malformed-schedule startup aborts and duplicate-trigger drift after restart. (from #34466, #34896, #34625, #33206) Thanks @dunamismax, @dsantoreis, @Octane0411, and @Sid-Qin.
+- Venice/provider onboarding hardening: align per-model Venice completion-token limits with discovery metadata, clamp untrusted discovery values to safe bounds, sync the static Venice fallback catalog with current live model metadata, and disable tool wiring for Venice models that do not support function calling so default Venice setups no longer fail with `max_completion_tokens` or unsupported-tools 400s. Fixes #38168. Thanks @Sid-Qin, @powermaster888 and @vincentkoc.
 - Agents/session usage tracking: preserve accumulated usage metadata on embedded Pi runner error exits so failed turns still update session `totalTokens` from real usage instead of stale prior values. (#34275) thanks @RealKai42.
 - Slack/reaction thread context routing: carry Slack native DM channel IDs through inbound context and threading tool resolution so reaction targets resolve consistently for DM `To=user:*` sessions (including `toolContext.currentChannelId` fallback behavior). (from #34831; overlaps #34440, #34502, #34483, #32754) Thanks @dunamismax.
 - Subagents/announce completion scoping: scope nested direct-child completion aggregation to the current requester run window, harden frozen completion capture for deterministic descendant synthesis, and route completion announce delivery through parent-agent announce turns with provenance-aware internal events. (#35080) Thanks @tyler6204.
@@ -213,6 +214,7 @@ Docs: https://docs.openclaw.ai
 - Gateway/probes: keep `/health`, `/healthz`, `/ready`, and `/readyz` reachable when the Control UI is mounted at `/`, preserve plugin-owned route precedence on those paths, and make `/ready` and `/readyz` report channel-backed readiness with startup grace plus `503` on disconnected managed channels, while `/health` and `/healthz` stay shallow liveness probes. (#18446) Thanks @vibecodooor, @mahsumaktas, and @vincentkoc.
 - Feishu/media downloads: drop invalid timeout fields from SDK method calls now that client-level `httpTimeoutMs` applies to requests. (#38267) Thanks @ant1eicher and @thewilloftheshadow.
 - PI embedded runner/Feishu docs: propagate sender identity into embedded attempts so Feishu doc auto-grant restores requester access for embedded-runner executions. (#32915) thanks @cszhouwei.
+- Agents/usage normalization: normalize missing or partial assistant usage snapshots before compaction accounting so `openclaw agent --json` no longer crashes when provider payloads omit `totalTokens` or related usage fields. (#34977) thanks @sp-hk2ldn.
 
 ## 2026.3.2
 
@@ -714,6 +716,7 @@ Docs: https://docs.openclaw.ai
 - Slack/Disabled channel startup: skip Slack monitor socket startup entirely when `channels.slack.enabled=false` (including configs that still contain valid tokens), preventing disabled accounts from opening websocket connections. (#30586) Thanks @liuxiaopai-ai.
 - Onboarding/Custom providers: use Azure OpenAI-specific verification auth/payload shape (`api-key`, deployment-path chat completions payload) when probing Azure endpoints so valid Azure custom-provider setup no longer fails preflight. (#29421) Thanks @kunalk16.
 - Feishu/Docx editing tools: add `feishu_doc` positional insert, table row/column operations, table-cell merge, and color-text updates; switch markdown write/append/insert to Descendant API insertion with large-document batching; and harden image uploads for data URI/base64/local-path inputs with strict validation and routing-safe upload metadata. (#29411) Thanks @Elarwei001.
+- Commands/Owner-only tools: treat identified direct-chat senders as owners when no owner allowlist is configured, while preserving internal `operator.admin` owner sessions. (#26331) thanks @widingmarcus-cyber
 
 ## 2026.2.26
 
