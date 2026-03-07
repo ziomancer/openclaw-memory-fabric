@@ -1,6 +1,6 @@
 # Input Validation Layers
 
-### OpenClaw · Feature Spec v2.2
+### OpenClaw · Feature Spec v2.3
 
 ### Extension of: Transcript Sanitization Subagent for Session Memory + MCP Trust Tier
 
@@ -13,6 +13,14 @@
 | `TRANSCRIPT_ALLOWED_FIELDS` listed 5 fields; implementation has 17                                        | Updated allowlist to match implementation (added expiresAt, from, to, channelId, etc.). |
 | Frequency weight keys used stale names (`schema.extra-fields`, `schema.missing-required`)                 | Corrected to `schema.extra-field`, `schema.missing-field` to match implementation.      |
 | `schema.no-discriminant` weight listed in spec; not present in implementation `DEFAULT_FREQUENCY_WEIGHTS` | Removed `schema.no-discriminant` entry from default weights table.                      |
+
+## Changelog (v2.2 → v2.3)
+
+| Issue                                                                                                      | Resolution                                                                                                                                    |
+| ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Architecture section stated Stage 1A/1B run "concurrently via `Promise.all`"; both are synchronous functions called sequentially | Corrected. `runPreFilter` calls `syntacticPreFilter` then `schemaValidation` sequentially. Both are pure synchronous functions; `async` wrapper is for API consistency only. |
+| `SessionSuspicionState` type missing `terminated` field set at tier-3 escalation                          | Added `terminated?: boolean` to type. Set to `true` when score crosses `thresholds.tier3`; subsequent calls return `tier3` immediately.       |
+| Default frequency weights listed `"encoding.*": 5`; not present in `DEFAULT_FREQUENCY_WEIGHTS` in config.ts | Removed. Also added missing `"schema.undeclared-admin-reject": 4` which is in the implementation.                                            |
 
 ## Changelog (v2 → v2.1)
 
@@ -78,9 +86,11 @@ Stage 2: Semantic Sub-Agent (existing sanitization helper)
   └── safe: true → pass structuredResult to manager
 ```
 
-Syntactic filtering and schema validation execute concurrently via
-`Promise.all`. Their results are merged before the two-pass gating decision.
-Neither depends on the other's output.
+Syntactic filtering and schema validation are both pure synchronous functions.
+`runPreFilter` calls them sequentially and merges their results before the
+two-pass gating decision. The `async` wrapper on `runPreFilter` is for API
+consistency only — no concurrency is involved. Neither stage depends on the
+other's output.
 
 The two-pass cost optimization is an optional config flag that skips Stage 2
 entirely when Stage 1 produces a definitive FAIL. When disabled, both stages
@@ -351,14 +361,20 @@ posture escalates through defined tiers.
 currentScore = previousScore × e^(-elapsed / halfLife) + newFlagWeight
 ```
 
-**Per-session state** (two values only):
+**Per-session state:**
 
 ```typescript
 type SessionSuspicionState = {
-  lastScore: number; // cumulative decayed score
-  lastUpdateMs: number; // timestamp of last score update
+  lastScore: number;      // cumulative decayed score
+  lastUpdateMs: number;   // timestamp of last score update
+  terminated?: boolean;   // set to true when score crosses thresholds.tier3
 };
 ```
+
+Once `terminated` is set, `updateFrequencyScore` returns `tier3` immediately on
+every subsequent call regardless of the current score or elapsed time. Subsequent
+turns in the terminated session are blocked at the frequency gate without updating
+the score.
 
 **Update procedure** (O(1) per event):
 
@@ -380,12 +396,12 @@ memory.sessions.sanitization.frequency.halfLifeMs: number
 
 memory.sessions.sanitization.frequency.weights: Record<string, number>
   Default:
-    "injection.*":              10
-    "structural.*":              5
-    "encoding.*":                5
-    "schema.extra-field":        8
-    "schema.type-mismatch":      6
-    "schema.missing-field":      4
+    "injection.*":                    10
+    "structural.*":                    5
+    "schema.extra-field":              8
+    "schema.type-mismatch":            6
+    "schema.missing-field":            4
+    "schema.undeclared-admin-reject":  4
 
 memory.sessions.sanitization.frequency.thresholds: object
   Default:
@@ -590,10 +606,10 @@ existing per-session audit JSONL at:
 ~/.openclaw/agents/<agentId>/session-memory/audit/<sessionId>.jsonl
 ```
 
-Within-session frequency state (`lastScore`, `lastUpdateMs`) is held in
-memory for the duration of the session. It is not persisted — session
-restart resets the frequency score. This is acceptable because session
-restart also resets the attack surface.
+Within-session frequency state (`lastScore`, `lastUpdateMs`, `terminated`) is
+held in memory for the duration of the session. It is not persisted — session
+restart resets the frequency score and terminated flag. This is acceptable
+because session restart also resets the attack surface.
 
 ---
 

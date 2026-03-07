@@ -1,10 +1,16 @@
 # Audit Alerting
 
-### OpenClaw · Feature Spec · v2.2
+### OpenClaw · Feature Spec · v2.3
 
-### Companion to: Input Validation Layers v2.2, Audit Trail Enhancement v2.1
+### Companion to: Input Validation Layers v2.3, Audit Trail Enhancement v2.2
 
 ---
+
+## Changelog (v2.2 → v2.3)
+
+| Issue                                                                                                   | Resolution                                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Cross-Session Event Index stated the index "is rebuilt on process restart by tailing recent JSONL files" — no such rebuild logic exists in state.ts | Corrected: the index starts empty on restart. A brief gap in cross-session alerting after restart is an accepted tradeoff. Rebuild is not implemented. |
 
 ## Changelog (v2.1 → v2.2)
 
@@ -98,10 +104,10 @@ As log volume grows, the index can be extended with hierarchical bucketing
 and bounded memory. For the initial implementation, a flat ring buffer per
 event type is sufficient for the expected event volumes.
 
-The index is ephemeral — it is rebuilt on process restart by tailing recent
-JSONL files within the TTL window. This means a brief gap in cross-session
-alerting is possible during restarts, which is an accepted tradeoff for
-simplicity.
+The index is ephemeral — it starts empty on process restart with no rebuild
+from disk. This means a brief gap in cross-session alerting occurs after each
+restart, which is an accepted tradeoff for simplicity. (A rebuild-on-restart
+path that tails recent JSONL files is deferred to a future release.)
 
 ### Events consumed from Input Validation Layers spec
 

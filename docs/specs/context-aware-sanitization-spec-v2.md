@@ -4,7 +4,7 @@
 
 ### Extension of: Transcript Sanitization Subagent for Session Memory + MCP Trust Tier
 
-### Companion to: Input Validation Layers v2.2, Audit Trail Enhancement v2.1, Audit Alerting v2.2
+### Companion to: Input Validation Layers v2.3, Audit Trail Enhancement v2.2, Audit Alerting v2.3
 
 ---
 

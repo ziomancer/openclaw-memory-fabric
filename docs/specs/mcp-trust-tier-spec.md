@@ -6,6 +6,15 @@
 
 ---
 
+## Changelog (v1 → v2)
+
+| Issue                                                                                                                    | Resolution                                                                                                                                                                     |
+| ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `trustedServers` described as requiring entries to "match a declared server in the OpenClaw MCP server config"; no such cross-reference exists in the implementation | Corrected: `trustedServers` is a freeform string list. No cross-reference against the `mcpServers` registry is performed. Cross-referencing is deferred.                      |
+| Trust tier flowchart and Write Path omitted the terminated-session check that runs between Stage 1 and the trusted fast path | Added. A terminated-session guard fires after Stage 1 audit events and before the trusted-server fast path. Trusted servers do not exempt a terminated session. |
+
+---
+
 ## Summary
 
 Extend the sanitization sub-agent architecture to cover MCP tool results as an input
@@ -50,13 +59,16 @@ agentic architecture — not a feature of any particular host runtime.
 ```
 MCP server result arrives
         ↓
-Stage 1: syntactic + schema pre-filter (runs for all results)
-  audit events emitted (syntactic_pass/fail, schema_pass/fail)
+Stage 1: syntactic + schema pre-filter (runs for all results, including trusted)
+  audit events emitted (syntactic_pass/fail, schema_pass/fail, rule_triggered, flags_summary)
+        ↓
+Terminated-session check (always runs, trusted servers do not exempt)
+  └── TERMINATED → blocked immediately, terminated=true returned to caller
         ↓
 Is server on trusted list?
   ├── YES → fast path → result passed to manager directly
   │                     audit entry logged (trusted_pass)
-  │                     (Stage 1 pre-filter result is not acted upon for trusted servers)
+  │                     (Stage 1 blocking decision not applied; audit events already written)
   └── NO  → Tier 1: structural pre-filter (tier1.ts, no LLM, sub-millisecond)
               ├── FAIL → raw mirror written (safe: false)
               │          audit logged (structural_block)
@@ -96,7 +108,9 @@ memory.sessions.sanitization.mcp.enabled: boolean
 memory.sessions.sanitization.mcp.trustedServers: string[]
   Default: []
   List of MCP server identifiers that bypass sanitization.
-  Identifiers must match a declared server in the OpenClaw MCP server config.
+  Identifiers are freeform strings matched exactly against the server name
+  reported with each tool result. No cross-reference against the mcpServers
+  registry is performed — the operator is responsible for ensuring names match.
 
   For Docker Compose deployments, use the Compose service name as the identifier
   (e.g. "filesystem", "local-git", "vector-db"). This maps to a known container
@@ -430,10 +444,16 @@ flags?
 - Trigger from the MCP tool result return path, after the tool result is received
   and before it is passed to the manager context.
 - Run Stage 1 pre-filter (syntactic + schema) unconditionally — this applies to
-  all results including trusted servers. Emit pre-filter audit events.
+  all results including trusted servers. Emit pre-filter audit events (syntactic,
+  schema, rule_triggered, flags_summary where applicable).
+- Check terminated-session state. If the session has been marked terminated (tier-3
+  frequency escalation), block immediately and return `terminated: true` — trusted
+  servers do not exempt a terminated session. This check occurs after Stage 1 audit
+  events have been emitted.
 - Check trusted list. If trusted, log `trusted_pass` audit entry and return
-  immediately — Stage 1 pre-filter result is not acted upon for trusted results.
-  No raw mirror is written for trusted results.
+  immediately — Stage 1 blocking decision is not applied for trusted results, though
+  audit events are already written (enabling Alert Rule 2 for schema failures on
+  trusted servers). No raw mirror is written for trusted results.
 - If untrusted:
   - run Tier 1 structural pre-filter
   - if Tier 1 fails: write raw mirror (safe: false), append audit `structural_block`

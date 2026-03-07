@@ -1,12 +1,18 @@
 # Audit Trail Enhancement
 
-### OpenClaw · Feature Spec · v2.1
+### OpenClaw · Feature Spec · v2.2
 
 ### Extension of: Transcript Sanitization Subagent for Session Memory + MCP Trust Tier
 
 ### Codename: IRS Edition
 
 ---
+
+## Changelog (v2.1 → v2.2)
+
+| Issue                                                                                                                         | Resolution                                                                                                                                                                          |
+| ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `signal_failed` listed as "never implemented" in v1→v2 changelog; event IS implemented in the signal helper path (service.ts) | Re-added to spec. `signal_failed` emits at `minimal` verbosity via `gatedAudit`, including alerting notification. Added to Current State and minimal tier event list.              |
 
 ## Changelog (v2 → v2.1)
 
@@ -23,7 +29,7 @@
 
 | Issue                                                                            | Resolution                                                                                                                                           |
 | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `signal_failed` listed in current state but absent from all verbosity tiers      | Removed. Event was never implemented. If system-level failures need tracking in the future, a new event type should be defined with clear semantics. |
+| `signal_failed` listed in current state but absent from all verbosity tiers      | Removed at v2 as believed unimplemented. Re-added at v2.2 — event IS implemented; see v2.1→v2.2 changelog. |
 | `flags_summary` redundant at `high`+ verbosity alongside `rule_triggered` events | `flags_summary` is now suppressed when `rule_triggered` events are emitted. See Verbosity Tiers.                                                     |
 | `audit_config_loaded` behavior when `audit.enabled: false` was ambiguous         | Clarified. When `audit.enabled: false`, no events are written, no I/O occurs. The audit subsystem is fully inert.                                    |
 | Unknown ruleId startup behavior unspecified                                      | Clarified as warning log.                                                                                                                            |
@@ -68,16 +74,18 @@ diff recording, rule tagging in flags, and structured per-rule audit events.
 The existing audit log records:
 
 ```
-event: "sanitized_pass" | "sanitized_block" | "write_failed"
+event: "sanitized_pass" | "sanitized_block" | "write_failed" | "signal_failed"
 messageId or toolCallId
 timestamp
 sessionId
 agentId
 ```
 
-> **Note:** The previous spec listed `signal_failed` as an existing event type.
-> This event was never implemented and has been removed from the spec. If
-> system-level signal failures need tracking in the future, a new event type
+> **Note:** `signal_failed` was previously removed from this spec (v1→v2) as
+> believed unimplemented. It is re-added at v2.2. The event fires when the
+> signal helper sub-agent throws (service.ts `signalSessionMemory` catch block),
+> is emitted via `gatedAudit` at `minimal` verbosity with alerting notification,
+> and is listed in `EVENT_MIN_VERBOSITY`. If
 > should be defined with clear semantics and assigned to a verbosity tier.
 
 What the existing log does not record:
@@ -105,12 +113,14 @@ Events recorded:
 
 - `sanitized_block` — content was blocked
 - `write_failed` — sanitization write failed
+- `signal_failed` — signal helper sub-agent threw; session signal degraded gracefully
 - `twopass_hard_block` — content blocked at syntactic stage (from input validation spec)
 - `syntactic_fail` — known injection pattern matched (from input validation spec)
 - `schema_fail` — input structurally invalid (from input validation spec)
 - `frequency_escalation_tier1` — session suspicion crossed tier 1 (from input validation spec)
 - `frequency_escalation_tier2` — session suspicion crossed tier 2 (from input validation spec)
 - `frequency_escalation_tier3` — session terminated (from input validation spec)
+- `context_profile_loaded` — active context profile recorded at session start (from context-aware sanitization spec)
 
 Events omitted:
 
