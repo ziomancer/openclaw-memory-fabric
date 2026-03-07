@@ -1635,8 +1635,41 @@ export async function processMcpToolResult(params: {
   }
 
   if (trustedServer) {
-    // … existing trusted_pass audit + return
+    await gatedAudit(
+      {
+        agentId: params.agentId,
+        sessionId: params.sessionId,
+        entry: {
+          event: "trusted_pass",
+          timestamp: nowIso(now),
+          server: params.server,
+          toolCallId: params.toolCallId,
+        },
+      },
+      auditVerbosity,
+      alertDeps,
+      auditEnabled,
+    );
+    return {
+      trusted: true,
+      safe: true,
+      structuredResult:
+        params.rawResult !== null && typeof params.rawResult === "object"
+          ? (params.rawResult as Record<string, unknown>)
+          : {},
+      flags: [],
+      contextNote: `trusted server: ${params.server}`,
+    };
   }
+
+  // --- Frequency tracking update ---
+  let mcpFrequencyTier: EscalationTier = "none";
+  let mcpFrequencyScore = 0;
+  if (validationCfg.frequency.enabled) {
+    if (mcpPreFilter.allRuleIds.length > 0) {
+      const freq = updateFrequencyScore(
+        params.sessionId,
+        mcpPreFilter.allRuleIds,
         now,
         validationCfg.frequency,
       );
