@@ -193,17 +193,31 @@ function fieldTypeFromJsonSchema(schema: Record<string, unknown>): string | unde
   return undefined;
 }
 
+function asOptionalType(typeStr: string): string {
+  const parts = typeStr
+    .split("|")
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+  return parts.includes("undefined") ? typeStr : `${typeStr} | undefined`;
+}
+
 function jsonObjectSchemaToToolOutputSchema(value: unknown): ToolOutputSchema | undefined {
   if (!isPlainObject(value)) return undefined;
   const schema = value as Record<string, unknown>;
   if (schema.type !== "object" || !isPlainObject(schema.properties)) return undefined;
+  const requiredSet = new Set(
+    Array.isArray(schema.required)
+      ? schema.required.filter((field): field is string => typeof field === "string")
+      : [],
+  );
 
   const fields: Record<string, string> = {};
   for (const [field, descriptor] of Object.entries(schema.properties)) {
     const fieldSchema = isPlainObject(descriptor)
       ? (descriptor as Record<string, unknown>)
       : undefined;
-    fields[field] = fieldSchema ? fieldTypeFromJsonSchema(fieldSchema) ?? "any" : "any";
+    const baseType = fieldSchema ? fieldTypeFromJsonSchema(fieldSchema) ?? "any" : "any";
+    fields[field] = requiredSet.has(field) ? baseType : asOptionalType(baseType);
   }
   return Object.keys(fields).length > 0 ? { fields } : undefined;
 }

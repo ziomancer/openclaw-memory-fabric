@@ -509,6 +509,24 @@ describe("schemaValidation", () => {
       expect(schemaValidation({ name: "Alice" }, "mcp", nullableSchema).pass).toBe(true);
     });
 
+    it("treats '| undefined' fields as optional", () => {
+      const optionalSchema: ToolOutputSchema = {
+        fields: {
+          title: "string",
+          subtitle: "string | undefined",
+        },
+      };
+      const missingOptional = schemaValidation({ title: "Hello" }, "mcp", optionalSchema);
+      expect(missingOptional.pass).toBe(true);
+
+      const presentOptional = schemaValidation(
+        { title: "Hello", subtitle: "World" },
+        "mcp",
+        optionalSchema,
+      );
+      expect(presentOptional.pass).toBe(true);
+    });
+
     it("rejects non-object input when schema declared", () => {
       const r = schemaValidation("not an object", "mcp", schema);
       expect(r.pass).toBe(false);

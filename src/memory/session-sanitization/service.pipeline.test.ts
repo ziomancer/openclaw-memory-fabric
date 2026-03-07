@@ -31,6 +31,7 @@ function createConfig(
     tier3: number;
     trustedServers: string[];
     verbosity: "minimal" | "standard" | "high" | "maximum";
+    contextProfile: "general" | "customer-service" | "code-generation" | "research" | "admin";
   }>,
 ): OpenClawConfig {
   return {
@@ -45,6 +46,9 @@ function createConfig(
           },
           ...(overrides?.verbosity !== undefined
             ? { audit: { verbosity: overrides.verbosity } }
+            : {}),
+          ...(overrides?.contextProfile !== undefined
+            ? { context: { profile: overrides.contextProfile } }
             : {}),
           ...(overrides?.twoPassEnabled !== undefined
             ? {
@@ -501,6 +505,34 @@ describe("Phase 2 pipeline integration", () => {
         sessionId: SESSION_ID,
       });
       expect(audits.some((a) => a.event === "twopass_hard_block")).toBe(false);
+    });
+
+    it("hard-block still triggers when matching rules are suppressed by profile", async () => {
+      const cfg = createConfig({
+        contextProfile: "code-generation",
+        twoPassEnabled: true,
+        twoPassHardBlockRules: ["structural.encoding-trick"],
+      });
+      const runner = vi.fn().mockResolvedValue(cleanResult());
+
+      const result = await processMcpToolResult({
+        ...baseParams(cfg, {
+          rawResult: {
+            note: "VGhpcyBpcyBhIHZlcnkgbG9uZyBiYXNlNjQgc3RyaW5nIHRoYXQgc2hvdWxkIHRyaWdnZXIgdGhlIGVuY29kaW5nIHRyaWNrIHJ1bGUu",
+          },
+        }),
+        helperDeps: { runner },
+      });
+
+      expect(result.safe).toBe(false);
+      expect(runner).not.toHaveBeenCalled();
+
+      const audits = await readSessionMemoryAuditEntries({
+        agentId: AGENT_ID,
+        sessionId: SESSION_ID,
+      });
+      const hardBlock = audits.find((a) => a.event === "twopass_hard_block");
+      expect(hardBlock?.ruleIds).toContain("structural.encoding-trick");
     });
 
     it("hard-blocks on multiple matching rules, includes all in ruleIds", async () => {

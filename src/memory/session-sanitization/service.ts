@@ -888,11 +888,13 @@ export async function writeTranscriptTurnToSessionMemory(params: {
   }
 
   // --- Two-pass gating ---
+  const transcriptHardBlockRuleIds = preFilter.allRuleIds.filter((id) =>
+    validationCfg.twoPass.hardBlockRules.includes(id),
+  );
   const isTwoPassDefinitiveFail =
     validationCfg.twoPass.enabled &&
     frequencyTier === "none" && // Frequency tier1+ overrides two-pass skip
-    !preFilter.pass &&
-    preFilter.allRuleIds.some((id) => validationCfg.twoPass.hardBlockRules.includes(id));
+    transcriptHardBlockRuleIds.length > 0;
 
   if (isTwoPassDefinitiveFail) {
     await gatedAudit(
@@ -903,9 +905,7 @@ export async function writeTranscriptTurnToSessionMemory(params: {
           event: "twopass_hard_block",
           timestamp: nowIso(now),
           messageId: rawEntry.messageId,
-          ruleIds: preFilter.allRuleIds.filter((id) =>
-            validationCfg.twoPass.hardBlockRules.includes(id),
-          ),
+          ruleIds: transcriptHardBlockRuleIds,
           reason: "skipped semantic pass — hard block rule triggered",
           profile: "write",
         },
@@ -1680,18 +1680,20 @@ export async function processMcpToolResult(params: {
     validationCfg.context.rejectUndeclaredToolSchemas &&
     mcpPreFilter.schema.ruleIds.includes("schema.missing-field") &&
     mcpPreFilter.schema.violations.some((v) => v.includes("tool has no declared output schema"));
+  const mcpHardBlockRuleIds = mcpPreFilter.allRuleIds.filter((id) =>
+    validationCfg.twoPass.hardBlockRules.includes(id),
+  );
 
   const isMcpTwoPassDefinitiveFail =
     isMcpAdminUndeclaredSchemaFail ||
     (validationCfg.twoPass.enabled &&
       mcpFrequencyTier === "none" && // Frequency tier1+ overrides two-pass skip
-      !mcpPreFilter.pass &&
-      mcpPreFilter.allRuleIds.some((id) => validationCfg.twoPass.hardBlockRules.includes(id)));
+      mcpHardBlockRuleIds.length > 0);
 
   if (isMcpTwoPassDefinitiveFail) {
     const blockRuleIds = isMcpAdminUndeclaredSchemaFail
       ? [...new Set([...mcpPreFilter.allRuleIds, "schema.missing-field"])]
-      : mcpPreFilter.allRuleIds.filter((id) => validationCfg.twoPass.hardBlockRules.includes(id));
+      : mcpHardBlockRuleIds;
     await gatedAudit(
       {
         agentId: params.agentId,

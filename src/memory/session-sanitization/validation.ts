@@ -555,6 +555,9 @@ function validateMcpResult(
     for (const [field, expectedType] of Object.entries(toolSchema.fields)) {
       const actual = result[field];
       if (actual === undefined) {
+        if (isOptionalTypeString(expectedType)) {
+          continue;
+        }
         addViolation("schema.missing-field", `required field '${field}' missing`);
         continue;
       }
@@ -573,12 +576,20 @@ function validateMcpResult(
 /**
  * Simple type string matcher.
  * Supported type strings: "string", "number", "boolean", "object", "array",
- * "string | null", "number | null", "any", and "const:<value>".
+ * "string | null", "string | undefined", "number | null", "any", and "const:<value>".
  */
+function isOptionalTypeString(typeStr: string): boolean {
+  return typeStr
+    .split("|")
+    .map((p) => p.trim())
+    .some((p) => p === "undefined");
+}
+
 function matchesTypeString(value: unknown, typeStr: string): boolean {
   if (typeStr === "any") return true;
   const parts = typeStr.split("|").map((p) => p.trim());
   for (const part of parts) {
+    if (part === "undefined" && value === undefined) return true;
     if (part === "null" && value === null) return true;
     if (part === "string" && typeof value === "string") return true;
     if (part === "number" && typeof value === "number") return true;
