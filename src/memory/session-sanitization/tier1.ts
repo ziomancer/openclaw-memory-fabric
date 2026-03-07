@@ -89,65 +89,6 @@ function collectFieldNames(obj: unknown, out: string[] = []): string[] {
   return out;
 }
 
-function collectStructuralJsonKeys(serialized: string): string[] {
-  const keys: string[] = [];
-  let inString = false;
-  let escaped = false;
-  let stringStart = -1;
-  let lastNonWhitespace = "";
-
-  const nextNonWhitespace = (start: number): string | undefined => {
-    for (let i = start; i < serialized.length; i++) {
-      const ch = serialized[i];
-      if (ch && !/\s/.test(ch)) return ch;
-    }
-    return undefined;
-  };
-
-  for (let i = 0; i < serialized.length; i++) {
-    const ch = serialized[i];
-    if (!ch) continue;
-
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-        continue;
-      }
-      if (ch === "\\") {
-        escaped = true;
-        continue;
-      }
-      if (ch === "\"") {
-        const next = nextNonWhitespace(i + 1);
-        // Object keys are strings at structural positions and followed by ':'.
-        if ((lastNonWhitespace === "{" || lastNonWhitespace === ",") && next === ":") {
-          const token = serialized.slice(stringStart, i + 1);
-          try {
-            keys.push(JSON.parse(token) as string);
-          } catch {
-            // Ignore malformed token fragments in heuristic mode.
-          }
-        }
-        inString = false;
-        lastNonWhitespace = "\"";
-      }
-      continue;
-    }
-
-    if (ch === "\"") {
-      inString = true;
-      escaped = false;
-      stringStart = i;
-      continue;
-    }
-    if (!/\s/.test(ch)) {
-      lastNonWhitespace = ch;
-    }
-  }
-
-  return keys;
-}
-
 function measureNestingDepth(obj: unknown, depth = 0): number {
   if (depth > 20) {
     return depth;
@@ -533,18 +474,18 @@ function checkStructuralTopology(
     }
   }
 
-  // STRUCT-004: duplicate key detection (heuristic — operates on re-serialized
-  // result; keys already deduplicated by JSON.parse will not be detected).
-  // Full detection requires a custom JSON text scanner; deferred to future.
-  const keys = collectStructuralJsonKeys(serialized);
+  // STRUCT-004: duplicate key detection — only check top-level keys.
+  // Flat collection across all nesting levels false-positives on arrays of
+  // objects that share key names (e.g. query result rows). Arrays get an
+  // empty key list; only non-array objects have their top-level keys checked.
+  const keys =
+    rawResult !== null && typeof rawResult === "object" && !Array.isArray(rawResult)
+      ? Object.keys(rawResult as Record<string, unknown>)
+      : [];
   const seen = new Set<string>();
   for (const key of keys) {
     if (seen.has(key)) {
-      addBlock(
-        acc,
-        "STRUCT-004",
-        `STRUCT-004: duplicate JSON key detected: "${key}" (heuristic)`,
-      );
+      addBlock(acc, "STRUCT-004", `STRUCT-004: duplicate JSON key detected: "${key}"`);
       break;
     }
     seen.add(key);
