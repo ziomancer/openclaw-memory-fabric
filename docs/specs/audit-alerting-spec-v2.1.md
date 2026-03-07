@@ -8,8 +8,8 @@
 
 ## Changelog (v2.2 → v2.3)
 
-| Issue                                                                                                   | Resolution                                                                                                                                            |
-| ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Issue                                                                                                                                               | Resolution                                                                                                                                             |
+| --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Cross-Session Event Index stated the index "is rebuilt on process restart by tailing recent JSONL files" — no such rebuild logic exists in state.ts | Corrected: the index starts empty on restart. A brief gap in cross-session alerting after restart is an accepted tradeoff. Rebuild is not implemented. |
 
 ## Changelog (v2.1 → v2.2)

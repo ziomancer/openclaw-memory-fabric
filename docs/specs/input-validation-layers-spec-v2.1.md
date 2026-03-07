@@ -16,11 +16,11 @@
 
 ## Changelog (v2.2 → v2.3)
 
-| Issue                                                                                                      | Resolution                                                                                                                                    |
-| ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Issue                                                                                                                            | Resolution                                                                                                                                                                   |
+| -------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Architecture section stated Stage 1A/1B run "concurrently via `Promise.all`"; both are synchronous functions called sequentially | Corrected. `runPreFilter` calls `syntacticPreFilter` then `schemaValidation` sequentially. Both are pure synchronous functions; `async` wrapper is for API consistency only. |
-| `SessionSuspicionState` type missing `terminated` field set at tier-3 escalation                          | Added `terminated?: boolean` to type. Set to `true` when score crosses `thresholds.tier3`; subsequent calls return `tier3` immediately.       |
-| Default frequency weights listed `"encoding.*": 5`; not present in `DEFAULT_FREQUENCY_WEIGHTS` in config.ts | Removed. Also added missing `"schema.undeclared-admin-reject": 4` which is in the implementation.                                            |
+| `SessionSuspicionState` type missing `terminated` field set at tier-3 escalation                                                 | Added `terminated?: boolean` to type. Set to `true` when score crosses `thresholds.tier3`; subsequent calls return `tier3` immediately.                                      |
+| Default frequency weights listed `"encoding.*": 5`; not present in `DEFAULT_FREQUENCY_WEIGHTS` in config.ts                      | Removed. Also added missing `"schema.undeclared-admin-reject": 4` which is in the implementation.                                                                            |
 
 ## Changelog (v2 → v2.1)
 
@@ -365,9 +365,9 @@ currentScore = previousScore × e^(-elapsed / halfLife) + newFlagWeight
 
 ```typescript
 type SessionSuspicionState = {
-  lastScore: number;      // cumulative decayed score
-  lastUpdateMs: number;   // timestamp of last score update
-  terminated?: boolean;   // set to true when score crosses thresholds.tier3
+  lastScore: number; // cumulative decayed score
+  lastUpdateMs: number; // timestamp of last score update
+  terminated?: boolean; // set to true when score crosses thresholds.tier3
 };
 ```
 

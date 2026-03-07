@@ -8,10 +8,10 @@
 
 ## Changelog (v1 → v2)
 
-| Issue                                                                                                                    | Resolution                                                                                                                                                                     |
-| ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `trustedServers` described as requiring entries to "match a declared server in the OpenClaw MCP server config"; no such cross-reference exists in the implementation | Corrected: `trustedServers` is a freeform string list. No cross-reference against the `mcpServers` registry is performed. Cross-referencing is deferred.                      |
-| Trust tier flowchart and Write Path omitted the terminated-session check that runs between Stage 1 and the trusted fast path | Added. A terminated-session guard fires after Stage 1 audit events and before the trusted-server fast path. Trusted servers do not exempt a terminated session. |
+| Issue                                                                                                                                                                | Resolution                                                                                                                                                      |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `trustedServers` described as requiring entries to "match a declared server in the OpenClaw MCP server config"; no such cross-reference exists in the implementation | Corrected: `trustedServers` is a freeform string list. No cross-reference against the `mcpServers` registry is performed. Cross-referencing is deferred.        |
+| Trust tier flowchart and Write Path omitted the terminated-session check that runs between Stage 1 and the trusted fast path                                         | Added. A terminated-session guard fires after Stage 1 audit events and before the trusted-server fast path. Trusted servers do not exempt a terminated session. |
 
 ---
 
