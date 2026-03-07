@@ -291,6 +291,13 @@ describe("syntacticPreFilter", () => {
       expect(r.ruleIds).not.toContain("structural.encoding-trick");
     });
 
+    it("does NOT flag base64 nested inside a known binary field array", () => {
+      // { data: ["<base64>"] } — parentKey must be preserved through array recursion
+      // so looksLikeBase64 still sees fieldName="data" and allowlists it
+      const r = synFilter({ data: [LONG_BASE64] });
+      expect(r.ruleIds).not.toContain("structural.encoding-trick");
+    });
+
     it("does NOT flag short base64-looking strings (below min length)", () => {
       const short = makeBase64("hi"); // too short
       const r = synFilter({ note: short });
