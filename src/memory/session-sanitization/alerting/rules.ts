@@ -53,11 +53,11 @@ export const evaluateSyntacticFailBurst: RuleEvaluator = ({ entry, cfg, recentCo
 
   const severity: AlertSeverity = recent.length >= rule.count * 2 ? "high" : "medium";
   return {
-    alertId: makeAlertId("syntacticFailBurst", entry.agentId, entry.sessionId, now),
+    alertId: makeAlertId("syntacticFailBurst", entry.agentId, null, now),
     ruleId: "syntacticFailBurst",
     severity,
     agentId: entry.agentId,
-    sessionId: entry.sessionId,
+    sessionId: null,
     timestamp: new Date(now).toISOString(),
     summary: `${recent.length} syntactic_fail events in ${rule.windowMs / 60_000}min window (threshold ${rule.count})`,
     details: {
@@ -235,11 +235,11 @@ export const evaluateWriteFailSpike: RuleEvaluator = ({ entry, cfg, recentContex
   if (recent.length < rule.count) return null;
 
   return {
-    alertId: makeAlertId("writeFailSpike", entry.agentId, entry.sessionId, now),
+    alertId: makeAlertId("writeFailSpike", entry.agentId, null, now),
     ruleId: "writeFailSpike",
     severity: "medium",
     agentId: entry.agentId,
-    sessionId: entry.sessionId,
+    sessionId: null,
     timestamp: new Date(now).toISOString(),
     summary: `${recent.length} write_failed events in ${rule.windowMs / 60_000}min window (threshold ${rule.count})`,
     details: {

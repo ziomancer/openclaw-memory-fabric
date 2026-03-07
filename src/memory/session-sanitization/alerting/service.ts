@@ -78,7 +78,7 @@ export function notifyAlerting(params: {
     if (!alert) continue;
 
     // Deduplication check
-    const dedupKey = buildDedupKey(alert.ruleId, params.agentId, params.sessionId);
+    const dedupKey = buildDedupKey(alert.ruleId, params.agentId, alert.sessionId);
     if (isDeduped(dedupKey, alertingCfg.suppression.windowMs, params.now)) {
       continue;
     }

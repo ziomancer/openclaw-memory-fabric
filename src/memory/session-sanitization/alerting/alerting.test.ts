@@ -331,7 +331,7 @@ describe("evaluateSyntacticFailBurst", () => {
     const entry = makeEvent("syntactic_fail");
     const alert = evaluateSyntacticFailBurst({ entry, cfg, recentContext: [], now: NOW });
     expect(alert?.agentId).toBe(AGENT_ID);
-    expect(alert?.sessionId).toBe(SESSION_ID);
+    expect(alert?.sessionId).toBeNull(); // cross-session rule — no session scope
     expect(alert?.summary).toContain("syntactic_fail");
   });
 });
