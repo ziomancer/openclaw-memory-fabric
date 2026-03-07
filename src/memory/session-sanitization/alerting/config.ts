@@ -27,8 +27,8 @@ export type ResolvedAlertingConfig = {
   trustedServers: string[];
 };
 
-/** Minimum index TTL — must cover the largest rule window (Rule 4 semantic-catch, 24 h). */
-const MIN_INDEX_TTL_MS = 24 * 60 * 60_000;
+/** Semantic-catch correlation window — fixed 24 h, the largest of the hardcoded rule windows. */
+const SEMANTIC_CATCH_WINDOW_MS = 24 * 60 * 60_000;
 
 export function resolveAlertingConfig(cfg: OpenClawConfig | undefined): ResolvedAlertingConfig {
   const raw = cfg?.alerting;
@@ -76,10 +76,16 @@ export function resolveAlertingConfig(cfg: OpenClawConfig | undefined): Resolved
     trustedServers: mcp.trustedServers,
   };
 
-  if (resolved.index.ttlMs < MIN_INDEX_TTL_MS) {
+  const maxRuleWindowMs = Math.max(
+    resolved.rules.syntacticFailBurst.windowMs,
+    resolved.rules.writeFailSpike.windowMs,
+    SEMANTIC_CATCH_WINDOW_MS, // Rule 4 semantic-catch window is a fixed 24 h constant
+  );
+  if (resolved.index.ttlMs < maxRuleWindowMs) {
     throw new Error(
-      `alerting.index.ttlMinutes must be >= 1440 (24 h) to cover the Rule 4 semantic-catch` +
-        ` correlation window (got ${Math.round(resolved.index.ttlMs / 60_000)} min)`,
+      `Alert index TTL (${Math.round(resolved.index.ttlMs / 60_000)} min) must be >= largest` +
+        ` rule window (${Math.round(maxRuleWindowMs / 60_000)} min).` +
+        ` Increase alerting.index.ttlMinutes or reduce rule window sizes.`,
     );
   }
 

@@ -686,6 +686,9 @@ export type PreFilterParams = {
  *
  * Both stages are synchronous pure functions. The merged result's `pass`
  * field is true only when both stages pass.
+ *
+ * Note: declared async for future-proofing but currently synchronous —
+ * syntacticPreFilter and schemaValidation are both pure sync functions.
  */
 export async function runPreFilter(params: PreFilterParams): Promise<PreFilterResult> {
   const ss = params.schemaStrictness;

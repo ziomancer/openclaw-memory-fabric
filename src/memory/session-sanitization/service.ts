@@ -225,6 +225,11 @@ function updateFrequencyScore(
     const configuredHalfLife = frequencyCfg.halfLifeMs;
     const halfLifeMs =
       Number.isFinite(configuredHalfLife) && configuredHalfLife > 0 ? configuredHalfLife : 60_000;
+    // Note: this uses an exponential decay time constant (e-folding), not a
+    // true half-life. At elapsedMs === halfLifeMs the score drops to ~36.8%
+    // (1/e), not 50%. The config field is named halfLifeMs for operator
+    // familiarity — treat it as "characteristic decay time" when tuning
+    // thresholds.
     const decayed = prev.lastScore * Math.exp(-elapsedMs / halfLifeMs);
     const flagWeight = computeFlagWeight(ruleIds, frequencyCfg.weights);
     const newScore = decayed + flagWeight;
@@ -716,7 +721,7 @@ export async function writeTranscriptTurnToSessionMemory(params: {
     return;
   }
 
-  // --- Stage 1: Parallel pre-filter (syntactic + schema) ---
+  // --- Stage 1: Pre-filter (syntactic + schema, sequential) ---
   const validationCfg = resolveSessionSanitizationValidationConfig(params.cfg);
   const auditVerbosity = validationCfg.audit.verbosity;
   const auditEnabled = validationCfg.audit.enabled;
@@ -982,7 +987,7 @@ export async function writeTranscriptTurnToSessionMemory(params: {
   // Build enhanced context for tier2 enhanced scrutiny
   const tier2ScrutinyNote =
     frequencyTier === "tier2"
-      ? `[session frequency alert: elevated injection pattern frequency detected. Apply heightened scrutiny. Recent flags: ${preFilter.allFlags.slice(0, 5).join("; ")}]`
+      ? `[session frequency alert: elevated injection pattern frequency detected. Apply heightened scrutiny. ${preFilter.allFlags.length > 0 ? `Recent flags: ${preFilter.allFlags.slice(0, 5).join("; ")}` : "No syntactic flags on this turn — apply scrutiny based on session history."}]`
       : undefined;
 
   try {
@@ -1514,7 +1519,7 @@ export async function processMcpToolResult(params: {
     });
   }
 
-  // --- Stage 1: Parallel pre-filter (syntactic + schema) ---
+  // --- Stage 1: Pre-filter (syntactic + schema, sequential) ---
   const mcpPreFilter = await runPreFilter({
     input: params.rawResult,
     source: "mcp",
@@ -1668,6 +1673,11 @@ export async function processMcpToolResult(params: {
     };
   }
 
+  // Trusted servers return here without updating sessionFrequencyState.
+  // Frequency drives Tier 2 enhanced scrutiny, which trusted servers skip
+  // by design. Compromised or misconfigured trusted servers are surfaced
+  // via alerting Rule 1 (syntacticFailBurst) and Rule 2 (trustedToolSchemaFail),
+  // not via frequency escalation.
   if (trustedServer) {
     await gatedAudit(
       {
@@ -1797,7 +1807,7 @@ export async function processMcpToolResult(params: {
   // Build tier2 enhanced scrutiny note
   const mcpTier2ScrutinyNote =
     mcpFrequencyTier === "tier2"
-      ? `[session frequency alert: elevated injection pattern frequency detected. Apply heightened scrutiny. Recent flags: ${mcpPreFilter.allFlags.slice(0, 5).join("; ")}]`
+      ? `[session frequency alert: elevated injection pattern frequency detected. Apply heightened scrutiny. ${mcpPreFilter.allFlags.length > 0 ? `Recent flags: ${mcpPreFilter.allFlags.slice(0, 5).join("; ")}` : "No syntactic flags on this turn — apply scrutiny based on session history."}]`
       : undefined;
 
   // Tier 1 structural pre-filter (existing MCP-specific checks).

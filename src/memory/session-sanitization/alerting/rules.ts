@@ -250,7 +250,15 @@ export const evaluateWriteFailSpike: RuleEvaluator = ({ entry, cfg, recentContex
   };
 };
 
-/** Ordered list of all rule evaluators. */
+/**
+ * Ordered list of all rule evaluators.
+ *
+ * Note: signal_failed events are routed through gatedAudit with alertDeps, so
+ * notifyAlerting fires — but no rule here evaluates them. Signal failures are
+ * transient infrastructure errors (model API instability, recall helper timeouts)
+ * rather than security signals. If repeated signal failures warrant operator
+ * alerting, add a Rule 6 here.
+ */
 export const ALL_RULES: RuleEvaluator[] = [
   evaluateSyntacticFailBurst,
   evaluateTrustedToolSchemaFail,
