@@ -114,6 +114,7 @@ const DEFAULT_FREQUENCY_WEIGHTS: Record<string, number> = {
   "schema.extra-field": 8,
   "schema.type-mismatch": 6,
   "schema.missing-field": 4,
+  "schema.undeclared-admin-reject": 4,
 };
 
 const DEFAULT_TWOPASS_HARD_BLOCK_RULES: string[] = [

@@ -1714,8 +1714,7 @@ export async function processMcpToolResult(params: {
   // --- Two-pass gating (MCP) ---
   const isMcpAdminUndeclaredSchemaFail =
     validationCfg.context.rejectUndeclaredToolSchemas &&
-    mcpPreFilter.schema.ruleIds.includes("schema.missing-field") &&
-    mcpPreFilter.schema.violations.some((v) => v.includes("tool has no declared output schema"));
+    mcpPreFilter.schema.ruleIds.includes("schema.undeclared-admin-reject");
   const mcpHardBlockRuleIds = mcpPreFilter.allRuleIds.filter((id) =>
     validationCfg.twoPass.hardBlockRules.includes(id),
   );

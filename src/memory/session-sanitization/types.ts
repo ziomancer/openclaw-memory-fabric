@@ -494,6 +494,7 @@ export const RULE_TAXONOMY: Readonly<Record<string, RuleTaxonomyEntry>> = Object
   "structural.encoding-trick": { category: "structural", stage: "syntactic" },
   "structural.binary-content": { category: "structural", stage: "syntactic" },
   "schema.missing-field": { category: "schema", stage: "schema" },
+  "schema.undeclared-admin-reject": { category: "schema", stage: "schema" },
   "schema.type-mismatch": { category: "schema", stage: "schema" },
   "schema.extra-field": { category: "schema", stage: "schema" },
   "semantic.safe-false": { category: "semantic", stage: "semantic" },

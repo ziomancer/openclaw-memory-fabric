@@ -494,7 +494,7 @@ function validateMcpResult(
     if (rejectUndeclaredSchema) {
       // Admin profile: tools without declared schemas are always rejected
       addViolation(
-        "schema.missing-field",
+        "schema.undeclared-admin-reject",
         "MCP result rejected: tool has no declared output schema (admin profile requires declared schemas)",
       );
       return { pass: false, violations, ruleIds };
