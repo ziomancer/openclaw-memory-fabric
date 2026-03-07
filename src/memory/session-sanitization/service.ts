@@ -51,6 +51,7 @@ const warnedUnavailableAgents = new Set<string>();
 const warnedSandboxSkipPassthrough = new Set<string>();
 /** Tracks which agentId:sessionId pairs have had context_profile_loaded emitted. */
 const profileLoadedSessions = new Set<string>();
+const RECALL_HELPER_MAX_CANDIDATES = 100;
 
 // ---------------------------------------------------------------------------
 // Audit verbosity gating
@@ -566,6 +567,27 @@ async function sweepAndAuditExpiredRaw(params: {
   );
 }
 
+function scheduleAuditRetentionSweep(params: {
+  agentId: string;
+  sessionId: string;
+  validationCfg: ResolvedValidationConfig;
+  source: "transcript" | "mcp";
+}): void {
+  if (!params.validationCfg.audit.enabled) {
+    return;
+  }
+  sweepOldAuditEntries({
+    agentId: params.agentId,
+    sessionId: params.sessionId,
+    retentionDays: params.validationCfg.audit.retentionDays,
+  }).catch((err) => {
+    log.warn(`${params.source} sanitization: audit retention sweep failed`, {
+      agentId: params.agentId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
+}
+
 function buildJsonLines(entries: unknown[]): string {
   return entries.map((entry) => JSON.stringify(entry)).join("\n");
 }
@@ -666,6 +688,12 @@ export async function writeTranscriptTurnToSessionMemory(params: {
   const auditVerbosity = validationCfg.audit.verbosity;
   const auditEnabled = validationCfg.audit.enabled;
   const alertDeps = { cfg: params.cfg, now };
+  scheduleAuditRetentionSweep({
+    agentId: params.agentId,
+    sessionId: params.sessionId,
+    validationCfg,
+    source: "transcript",
+  });
 
   // Emit context_profile_loaded once per session (minimal tier — always emitted when audit enabled)
   const profileSessionKey = `${params.agentId}:${params.sessionId}`;
@@ -1062,7 +1090,10 @@ export async function recallSessionMemory(params: {
       sessionId: params.sessionId,
     })
   ).filter(isTranscriptSummaryEntry);
-  const matchedSummaries = sortByLexicalMatch(query, summaries);
+  const matchedSummaries = sortByLexicalMatch(query, summaries).slice(
+    0,
+    RECALL_HELPER_MAX_CANDIDATES,
+  );
   if (matchedSummaries.length === 0) {
     return {
       mode: "recall",
@@ -1371,6 +1402,12 @@ export async function processMcpToolResult(params: {
   const auditEnabled = validationCfg.audit.enabled;
   // Alerting context threaded through all gatedAudit calls in this function
   const alertDeps = { cfg: params.cfg, now };
+  scheduleAuditRetentionSweep({
+    agentId: params.agentId,
+    sessionId: params.sessionId,
+    validationCfg,
+    source: "mcp",
+  });
 
   const trustedServer = isMcpServerTrusted({
     cfg: params.cfg,
@@ -1955,20 +1992,6 @@ export async function processMcpToolResult(params: {
     alertDeps,
     auditEnabled,
   );
-
-  // Audit retention sweep — fire-and-forget, runs after every successful pass
-  if (validationCfg.audit.enabled) {
-    sweepOldAuditEntries({
-      agentId: params.agentId,
-      sessionId: params.sessionId,
-      retentionDays: validationCfg.audit.retentionDays,
-    }).catch((err) => {
-      log.warn("mcp sanitization: audit retention sweep failed", {
-        agentId: params.agentId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
-  }
 
   return {
     trusted: false,

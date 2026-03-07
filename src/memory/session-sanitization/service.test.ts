@@ -12,6 +12,7 @@ import {
   writeTranscriptTurnToSessionMemory,
 } from "./service.js";
 import {
+  appendSessionMemoryAuditEntry,
   appendSessionMemorySummaryEntry,
   readSessionMemoryAuditEntries,
   readSessionMemoryRawEntries,
@@ -373,6 +374,123 @@ describe("session sanitization service", () => {
 
     expect(result.relevant).toEqual([]);
     expect(runner).not.toHaveBeenCalled();
+  });
+
+  it("caps recall candidates and raw window before invoking the helper", async () => {
+    const totalCandidates = 140;
+    const baseTs = Date.parse("2026-03-03T10:00:00.000Z");
+    for (let i = 0; i < totalCandidates; i++) {
+      const messageId = `msg-cap-${i}`;
+      const timestamp = new Date(baseTs + i * 1000).toISOString();
+      await appendSessionMemorySummaryEntry({
+        agentId: AGENT_ID,
+        sessionId: SESSION_ID,
+        entry: {
+          messageId,
+          timestamp,
+          rawExpiresAt: "2099-03-03T10:00:00.000Z",
+          source: "transcript",
+          decisions: [],
+          actionItems: [],
+          entities: [],
+          contextNote: `project status update ${i}`,
+          discard: false,
+        },
+      });
+      await writeSessionMemoryRawEntry({
+        agentId: AGENT_ID,
+        sessionId: SESSION_ID,
+        entry: {
+          messageId,
+          timestamp,
+          expiresAt: "2099-03-03T10:00:00.000Z",
+          transcript: `project status raw ${i}`,
+        },
+      });
+    }
+
+    const runner = vi.fn().mockImplementation(
+      async (params: { workspaceDir: string }) => {
+        const summaryCandidatesPath = path.join(params.workspaceDir, "summary-candidates.jsonl");
+        const rawWindowPath = path.join(params.workspaceDir, "raw-window.jsonl");
+        const summaryLines = (await fs.readFile(summaryCandidatesPath, "utf8"))
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean);
+        const rawLines = (await fs.readFile(rawWindowPath, "utf8"))
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean);
+
+        expect(summaryLines).toHaveLength(100);
+        expect(rawLines).toHaveLength(100);
+
+        return createRunnerResult({
+          mode: "recall",
+          result: "bounded recall",
+          source: "summary",
+          matchedSummaryIds: [],
+          usedRawMessageIds: [],
+        });
+      },
+    );
+
+    const result = await recallSessionMemory({
+      cfg: createConfig(),
+      agentId: AGENT_ID,
+      sessionId: SESSION_ID,
+      query: "project status",
+      helperDeps: { runner },
+    });
+
+    expect(result.result).toBe("bounded recall");
+    expect(runner).toHaveBeenCalledOnce();
+  });
+
+  it("applies audit retention sweeps during transcript writes", async () => {
+    await appendSessionMemoryAuditEntry({
+      agentId: AGENT_ID,
+      sessionId: SESSION_ID,
+      entry: {
+        event: "write_failed",
+        timestamp: "2000-01-01T00:00:00.000Z",
+        reason: "stale-audit-entry",
+      },
+    });
+
+    await writeTranscriptTurnToSessionMemory({
+      cfg: createConfig(),
+      agentId: AGENT_ID,
+      sessionId: SESSION_ID,
+      canonical: createCanonicalContext({ messageId: "msg-retention-write" }),
+      helperDeps: {
+        runner: vi.fn().mockResolvedValue(
+          createRunnerResult({
+            mode: "write",
+            decisions: [],
+            actionItems: [],
+            entities: [],
+            contextNote: "ok",
+            discard: false,
+          }),
+        ),
+      },
+    });
+
+    let staleRemoved = false;
+    for (let i = 0; i < 20; i++) {
+      const audits = await readSessionMemoryAuditEntries({
+        agentId: AGENT_ID,
+        sessionId: SESSION_ID,
+      });
+      staleRemoved = !audits.some((entry) => entry.reason === "stale-audit-entry");
+      if (staleRemoved) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    expect(staleRemoved).toBe(true);
   });
 
   it("returns high confidence only for raw-backed recall", async () => {
