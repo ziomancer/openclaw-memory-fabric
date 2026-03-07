@@ -39,6 +39,16 @@ function sanitizePayloadWithMemo(value: unknown, memo: WeakMap<object, unknown>)
   }
   const clone: Record<string, unknown> = {};
   memo.set(value as object, clone);
+  // Note: string values are redacted without field name context. Key/value
+  // pattern matching in redactSensitiveText (e.g. "password": "...") will
+  // not fire for values extracted from already-parsed objects. This is
+  // acceptable because: (1) structured token prefixes (sk-, ghp_, xox*, etc.)
+  // cover the realistic agent tool result cases without key context, and
+  // (2) the JSON-field pattern fires if the object appears serialized as a
+  // string inside a larger payload. A plain opaque secret under a sensitive
+  // key (e.g. { password: "hunter2" }) would not be caught — threading key
+  // context through sanitizeString would require meaningful refactor of this
+  // logging path and is deferred.
   for (const [key, entryValue] of Object.entries(value)) {
     clone[key] = sanitizePayloadWithMemo(entryValue, memo);
   }

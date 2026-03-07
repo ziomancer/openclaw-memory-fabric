@@ -260,6 +260,30 @@ function updateFrequencyScore(
 }
 
 /**
+ * Derive the current escalation tier from a stored SessionSuspicionState by applying
+ * exponential decay to the stored score. Used to persist tier-2 enhanced scrutiny on
+ * turns that carry no new flags — the decayed score may still exceed the tier2 threshold.
+ */
+function resolveStoredTier(
+  existing: SessionSuspicionState,
+  now: number,
+  cfg: ResolvedValidationConfig["frequency"],
+): EscalationTier {
+  const halfLifeMs =
+    Number.isFinite(cfg.halfLifeMs) && cfg.halfLifeMs > 0 ? cfg.halfLifeMs : 60_000;
+  const decayed =
+    existing.lastScore * Math.exp(-Math.max(0, now - existing.lastUpdateMs) / halfLifeMs);
+  const { tier1, tier2, tier3 } = cfg.thresholds;
+  // Note: decayed >= tier3 is unreachable in normal operation — updateFrequencyScore marks
+  // terminated: true before writing a score at tier3, and terminated sessions are caught
+  // by the early-exit guard before this function is called. Kept for defensive completeness.
+  if (decayed >= tier3) return "tier3";
+  if (decayed >= tier2) return "tier2";
+  if (decayed >= tier1) return "tier1";
+  return "none";
+}
+
+/**
  * Emit frequency escalation audit events for tier1, tier2, or tier3.
  * Returns the appropriate blocked McpProcessResult for tier3, or undefined
  * for tier1/tier2 (caller should continue processing with enhanced context).
@@ -864,7 +888,11 @@ export async function writeTranscriptTurnToSessionMemory(params: {
   const existingFreqState = sessionFrequencyState.get(params.sessionId);
   if (existingFreqState?.terminated) {
     frequencyTier = "tier3";
-  } else if (validationCfg.frequency.enabled && preFilter.allRuleIds.length > 0) {
+  } else if (validationCfg.frequency.enabled && existingFreqState) {
+    // Baseline: apply decay to the stored score — clean turns may still be in tier2.
+    frequencyTier = resolveStoredTier(existingFreqState, now, validationCfg.frequency);
+  }
+  if (validationCfg.frequency.enabled && preFilter.allRuleIds.length > 0) {
     const freq = updateFrequencyScore(
       params.sessionId,
       preFilter.allRuleIds,
@@ -1672,6 +1700,10 @@ export async function processMcpToolResult(params: {
   let mcpFrequencyTier: EscalationTier = "none";
   let mcpFrequencyScore = 0;
   if (validationCfg.frequency.enabled) {
+    if (existingFreqState) {
+      // Baseline: apply decay to stored score — clean turns may still be in tier2.
+      mcpFrequencyTier = resolveStoredTier(existingFreqState, now, validationCfg.frequency);
+    }
     if (mcpPreFilter.allRuleIds.length > 0) {
       const freq = updateFrequencyScore(
         params.sessionId,
