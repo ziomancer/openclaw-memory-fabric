@@ -30,7 +30,7 @@ const HOMOGLYPH_MAP: ReadonlyMap<string, string> = new Map([
   ["\u0430", "a"], // Cyrillic а → a
   ["\u0435", "e"], // Cyrillic е → e
   ["\u043E", "o"], // Cyrillic о → o
-  ["\u0440", "r"], // Cyrillic р → r
+  ["\u0440", "p"], // Cyrillic р → p
   ["\u0441", "c"], // Cyrillic с → c
   ["\u0445", "x"], // Cyrillic х → x
   ["\u0443", "y"], // Cyrillic у → y

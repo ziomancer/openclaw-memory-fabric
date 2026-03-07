@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -118,5 +119,59 @@ describe("createAnthropicPayloadLogger", () => {
     expect(raw).not.toContain(imageData);
     expect(raw).toContain("<redacted:");
     expect(raw).toContain("image/png");
+  });
+
+  it("computes payloadDigest from the sanitized payload that is logged", async () => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-payload-log-"));
+    const logFile = path.join(tmpDir, "anthropic-payload.jsonl");
+    const logger = createAnthropicPayloadLogger({
+      env: {
+        ...process.env,
+        OPENCLAW_ANTHROPIC_PAYLOAD_LOG: "1",
+        OPENCLAW_ANTHROPIC_PAYLOAD_LOG_FILE: logFile,
+      },
+    });
+
+    expect(logger).not.toBeNull();
+
+    const rawPayload = {
+      messages: [
+        {
+          role: "user",
+          content: "token=sk-1234567890abcdef",
+        },
+      ],
+    };
+
+    const streamFn = vi.fn(
+      (_model, _context, options?: { onPayload?: (payload: unknown) => void }) => {
+        options?.onPayload?.(rawPayload);
+        return Promise.resolve(undefined);
+      },
+    );
+
+    await logger!.wrapStreamFn(streamFn as never)(
+      { api: "anthropic-messages" } as never,
+      {} as never,
+      {},
+    );
+
+    await waitForFileContains(logFile, "\"payloadDigest\"");
+
+    const raw = await fs.readFile(logFile, "utf8");
+    const line = raw
+      .split(/\r?\n/)
+      .map((entry) => entry.trim())
+      .find((entry) => entry.length > 0);
+    expect(line).toBeDefined();
+    const event = JSON.parse(line!) as { payload?: unknown; payloadDigest?: string };
+    const expectedDigest = crypto
+      .createHash("sha256")
+      .update(JSON.stringify(event.payload))
+      .digest("hex");
+    const rawDigest = crypto.createHash("sha256").update(JSON.stringify(rawPayload)).digest("hex");
+
+    expect(event.payloadDigest).toBe(expectedDigest);
+    expect(event.payloadDigest).not.toBe(rawDigest);
   });
 });

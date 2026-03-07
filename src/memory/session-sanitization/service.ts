@@ -656,6 +656,7 @@ export async function writeTranscriptTurnToSessionMemory(params: {
   const validationCfg = resolveSessionSanitizationValidationConfig(params.cfg);
   const auditVerbosity = validationCfg.audit.verbosity;
   const auditEnabled = validationCfg.audit.enabled;
+  const alertDeps = { cfg: params.cfg, now };
 
   // Emit context_profile_loaded once per session (minimal tier — always emitted when audit enabled)
   const profileSessionKey = `${params.agentId}:${params.sessionId}`;
@@ -681,7 +682,7 @@ export async function writeTranscriptTurnToSessionMemory(params: {
         },
       },
       "minimal",
-      undefined,
+      alertDeps,
       auditEnabled,
     );
   }
@@ -715,7 +716,7 @@ export async function writeTranscriptTurnToSessionMemory(params: {
         },
       },
       auditVerbosity,
-      undefined,
+      alertDeps,
       auditEnabled,
     );
   }
@@ -737,7 +738,7 @@ export async function writeTranscriptTurnToSessionMemory(params: {
         },
       },
       auditVerbosity,
-      undefined,
+      alertDeps,
       auditEnabled,
     );
   }
@@ -760,7 +761,7 @@ export async function writeTranscriptTurnToSessionMemory(params: {
         },
       },
       auditVerbosity,
-      undefined,
+      alertDeps,
       auditEnabled,
     );
   }
@@ -783,7 +784,7 @@ export async function writeTranscriptTurnToSessionMemory(params: {
         },
       },
       auditVerbosity,
-      undefined,
+      alertDeps,
       auditEnabled,
     );
   }
@@ -804,7 +805,7 @@ export async function writeTranscriptTurnToSessionMemory(params: {
         },
       },
       auditVerbosity,
-      undefined,
+      alertDeps,
       auditEnabled,
     );
   }
@@ -838,6 +839,7 @@ export async function writeTranscriptTurnToSessionMemory(params: {
         now,
         source: "transcript",
         verbosity: auditVerbosity,
+        cfg: params.cfg,
         auditEnabled,
       });
     }
@@ -872,7 +874,7 @@ export async function writeTranscriptTurnToSessionMemory(params: {
         },
       },
       auditVerbosity,
-      undefined,
+      alertDeps,
       auditEnabled,
     );
     return;
@@ -957,7 +959,7 @@ export async function writeTranscriptTurnToSessionMemory(params: {
           },
         },
         auditVerbosity,
-        undefined,
+        alertDeps,
         auditEnabled,
       );
       return;
@@ -990,7 +992,7 @@ export async function writeTranscriptTurnToSessionMemory(params: {
         },
       },
       auditVerbosity,
-      undefined,
+      alertDeps,
       auditEnabled,
     );
   } catch (error) {
@@ -1006,7 +1008,7 @@ export async function writeTranscriptTurnToSessionMemory(params: {
         },
       },
       auditVerbosity,
-      undefined,
+      alertDeps,
       auditEnabled,
     );
   }

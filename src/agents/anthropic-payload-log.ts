@@ -148,7 +148,7 @@ export function createAnthropicPayloadLogger(params: {
           ts: new Date().toISOString(),
           stage: "request",
           payload: redactedPayload,
-          payloadDigest: digest(payload),
+          payloadDigest: digest(redactedPayload),
         });
         options?.onPayload?.(payload);
       };
