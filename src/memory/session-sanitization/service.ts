@@ -1515,8 +1515,11 @@ export async function processMcpToolResult(params: {
           { agentId: params.agentId, server: params.server },
         );
       }
+      // trusted: false so the caller routes through jsonResult() and the
+      // contextNote reaches the agent model. trusted: true would return rawResult
+      // directly, silently dropping the flags/contextNote in-band signal.
       return {
-        trusted: true,
+        trusted: false,
         safe: true,
         structuredResult:
           params.rawResult !== null && typeof params.rawResult === "object"
