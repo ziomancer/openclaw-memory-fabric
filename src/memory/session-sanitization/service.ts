@@ -137,7 +137,14 @@ async function gatedAudit(
   auditEnabled = true,
 ): Promise<void> {
   if (!auditEnabled) return;
-  const alertingEnabled = alertDeps ? resolveAlertingConfig(alertDeps.cfg).enabled : false;
+  let alertingEnabled = false;
+  try {
+    alertingEnabled = alertDeps ? resolveAlertingConfig(alertDeps.cfg).enabled : false;
+  } catch (cfgErr) {
+    log.warn("alerting config invalid — alerting disabled for this call", {
+      error: cfgErr instanceof Error ? cfgErr.message : String(cfgErr),
+    });
+  }
   if (!shouldEmitForVerbosity(params.entry.event, verbosity, alertingEnabled)) return;
   try {
     await appendSessionMemoryAuditEntry(params);
