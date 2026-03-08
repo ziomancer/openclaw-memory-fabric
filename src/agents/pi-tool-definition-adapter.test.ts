@@ -3,6 +3,7 @@ import { Type } from "@sinclair/typebox";
 import { describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
 import * as sessionSanitizationService from "../memory/session-sanitization/service.js";
+import { schemaValidation } from "../memory/session-sanitization/validation.js";
 import { toToolDefinitions, wrapMcpToolDefinitions } from "./pi-tool-definition-adapter.js";
 
 type ToolExecute = ReturnType<typeof toToolDefinitions>[number]["execute"];
@@ -158,6 +159,67 @@ describe("pi tool definition adapter", () => {
         optionalTitle: "string | undefined",
       },
     });
+    processSpy.mockRestore();
+  });
+
+  it("passes MCP payload (details) to sanitization instead of the AgentToolResult envelope", async () => {
+    const processSpy = vi
+      .spyOn(sessionSanitizationService, "processMcpToolResult")
+      .mockResolvedValue({
+        trusted: false,
+        safe: true,
+        structuredResult: { ok: true },
+        flags: [],
+        contextNote: "ok",
+      });
+
+    const cfg = {
+      mcpServers: {
+        "community-search": {
+          tools: ["web_search"],
+        },
+      },
+    } as OpenClawConfig;
+
+    const payload = { id: 1, name: "test" };
+    const toolDef = {
+      name: "web_search",
+      label: "Web Search",
+      description: "MCP search tool",
+      parameters: Type.Object({}),
+      outputSchema: {
+        type: "object",
+        properties: {
+          id: { type: "number" },
+          name: { type: "string" },
+        },
+        required: ["id", "name"],
+      },
+      execute: async () => ({
+        content: [{ type: "text", text: JSON.stringify(payload) }],
+        details: payload,
+      }),
+    } as unknown as ReturnType<typeof toToolDefinitions>[number];
+
+    const wrapped = wrapMcpToolDefinitions([toolDef], {
+      cfg,
+      agentId: "main",
+      sessionId: "sess-1",
+    });
+    const wrappedDef = wrapped[0];
+    if (!wrappedDef) {
+      throw new Error("missing wrapped definition");
+    }
+
+    await wrappedDef.execute("call-1", {}, undefined, undefined, extensionContext);
+
+    expect(processSpy).toHaveBeenCalledOnce();
+    const mcpParams = processSpy.mock.calls[0]?.[0];
+    expect(mcpParams?.rawResult).toEqual(payload);
+    const schema = schemaValidation(mcpParams?.rawResult, "mcp", mcpParams?.toolSchema);
+    expect(schema.pass).toBe(true);
+    expect(schema.ruleIds).not.toContain("schema.extra-field");
+    expect(schema.ruleIds).not.toContain("schema.missing-field");
     processSpy.mockRestore();
   });
 

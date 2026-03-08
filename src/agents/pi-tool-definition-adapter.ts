@@ -136,6 +136,24 @@ function prependContextNoteToPassthroughResult(params: {
   };
 }
 
+function extractMcpSanitizationPayload(rawResult: AgentToolResult<unknown>): unknown {
+  if ("details" in rawResult && rawResult.details !== undefined) {
+    return rawResult.details;
+  }
+  const firstContent = Array.isArray(rawResult.content) ? rawResult.content[0] : undefined;
+  if (firstContent && typeof firstContent === "object" && "text" in firstContent) {
+    const text = (firstContent as { text?: unknown }).text;
+    if (typeof text === "string") {
+      try {
+        return JSON.parse(text) as unknown;
+      } catch {
+        return text;
+      }
+    }
+  }
+  return firstContent;
+}
+
 function splitToolExecuteArgs(args: ToolExecuteArgsAny): {
   toolCallId: string;
   params: unknown;
@@ -364,6 +382,7 @@ export function wrapMcpToolDefinitions(
         ...args: Parameters<ToolDefinition["execute"]>
       ): Promise<AgentToolResult<unknown>> => {
         const rawResult = await originalExecute(...args);
+        const sanitizerInput = extractMcpSanitizationPayload(rawResult);
         // args[0] is always the toolCallId regardless of legacy/current arg order.
         const toolCallId = typeof args[0] === "string" ? args[0] : "unknown";
         // args[1] is always the params object.
@@ -377,7 +396,7 @@ export function wrapMcpToolDefinitions(
             server,
             toolCallId,
             toolName: def.name,
-            rawResult,
+            rawResult: sanitizerInput,
             toolSchema,
             query: { server, tool: def.name, params: toolParams },
             helperDeps: { lane: params.lane ?? "background:session-memory-mcp" },
