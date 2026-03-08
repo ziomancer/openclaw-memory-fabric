@@ -684,6 +684,20 @@ export function buildAfterTurnLegacyCompactionParams(params: {
   };
 }
 
+export function shouldWrapMcpToolsForRun(params: {
+  mcpSanitizationEnabled: boolean;
+  config?: OpenClawConfig;
+  sessionId?: string;
+  trigger?: string;
+}): boolean {
+  return (
+    params.mcpSanitizationEnabled &&
+    !!params.config &&
+    !!params.sessionId &&
+    params.trigger !== "memory"
+  );
+}
+
 function summarizeMessagePayload(msg: AgentMessage): { textChars: number; imageBlocks: number } {
   const content = (msg as { content?: unknown }).content;
   if (typeof content === "string") {
@@ -1185,15 +1199,19 @@ export async function runEmbeddedAttempt(
 
       const mergedCustomTools = [...customTools, ...clientToolDefs];
       const mcpSanitizationCfg = resolveSessionSanitizationMcpConfig(params.config);
-      const allCustomTools =
-        mcpSanitizationCfg.enabled && params.config && params.sessionId
-          ? wrapMcpToolDefinitions(mergedCustomTools, {
-              cfg: params.config,
-              agentId: sessionAgentId,
-              sessionId: params.sessionId,
-              lane: "background:session-memory-mcp",
-            })
-          : mergedCustomTools;
+      const allCustomTools = shouldWrapMcpToolsForRun({
+        mcpSanitizationEnabled: mcpSanitizationCfg.enabled,
+        config: params.config,
+        sessionId: params.sessionId,
+        trigger: params.trigger,
+      })
+        ? wrapMcpToolDefinitions(mergedCustomTools, {
+            cfg: params.config!,
+            agentId: sessionAgentId,
+            sessionId: params.sessionId,
+            lane: "background:session-memory-mcp",
+          })
+        : mergedCustomTools;
 
       ({ session } = await createAgentSession({
         cwd: resolvedWorkspace,

@@ -7,6 +7,7 @@ import {
   isOllamaCompatProvider,
   prependSystemPromptAddition,
   resolveAttemptFsWorkspaceOnly,
+  shouldWrapMcpToolsForRun,
   resolveOllamaCompatNumCtxEnabled,
   resolvePromptBuildHookResult,
   resolvePromptModeForSession,
@@ -182,6 +183,31 @@ describe("resolveAttemptFsWorkspaceOnly", () => {
     ).toBe(false);
   });
 });
+
+describe("shouldWrapMcpToolsForRun", () => {
+  it("skips MCP wrapping for memory helper runs", () => {
+    expect(
+      shouldWrapMcpToolsForRun({
+        mcpSanitizationEnabled: true,
+        config: {},
+        sessionId: "session-1",
+        trigger: "memory",
+      }),
+    ).toBe(false);
+  });
+
+  it("wraps MCP tools for non-memory runs when config and session are present", () => {
+    expect(
+      shouldWrapMcpToolsForRun({
+        mcpSanitizationEnabled: true,
+        config: {},
+        sessionId: "session-1",
+        trigger: "user",
+      }),
+    ).toBe(true);
+  });
+});
+
 describe("wrapStreamFnTrimToolCallNames", () => {
   function createFakeStream(params: { events: unknown[]; resultMessage: unknown }): {
     result: () => Promise<unknown>;
