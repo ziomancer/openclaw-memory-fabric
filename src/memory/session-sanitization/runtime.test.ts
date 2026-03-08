@@ -225,4 +225,43 @@ describe("session sanitization helper runtime", () => {
       }),
     ).rejects.toThrow("sandbox isolation unavailable");
   });
+
+  it("does not fail a successful helper run when temp cleanup throws", async () => {
+    const rmSpy = vi.spyOn(fs, "rm").mockRejectedValueOnce(new Error("cleanup lock"));
+    const runner = vi.fn(async () => ({
+      payloads: [
+        {
+          text: JSON.stringify({
+            mode: "write",
+            decisions: ["keep"],
+            actionItems: [],
+            entities: [],
+            contextNote: "ok",
+            discard: false,
+          }),
+        },
+      ],
+      meta: { durationMs: 1 },
+    }));
+
+    const result = await runSessionSanitizationHelper({
+      cfg: createConfig(),
+      agentId: "main",
+      mode: "write",
+      runner,
+      files: [
+        {
+          relativePath: "raw-turn.json",
+          content: JSON.stringify({ messageId: "m1" }),
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      mode: "write",
+      decisions: ["keep"],
+      discard: false,
+    });
+    rmSpy.mockRestore();
+  });
 });

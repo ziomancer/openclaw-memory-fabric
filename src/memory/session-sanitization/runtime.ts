@@ -308,7 +308,18 @@ export async function runSessionSanitizationHelper<T>(params: {
     });
     throw error;
   } finally {
-    await fs.rm(tempRoot, { recursive: true, force: true });
+    try {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    } catch (cleanupErr) {
+      // Best-effort cleanup: do not convert a successful helper run into a
+      // failure due to transient temp-dir deletion issues (common on Windows).
+      log.warn("session sanitization helper cleanup failed", {
+        agentId: params.agentId,
+        mode: params.mode,
+        tempRoot,
+        error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+      });
+    }
   }
 }
 
