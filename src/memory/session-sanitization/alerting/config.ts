@@ -76,17 +76,20 @@ export function resolveAlertingConfig(cfg: OpenClawConfig | undefined): Resolved
     trustedServers: mcp.trustedServers,
   };
 
-  const maxRuleWindowMs = Math.max(
-    resolved.rules.syntacticFailBurst.windowMs,
-    resolved.rules.writeFailSpike.windowMs,
-    SEMANTIC_CATCH_WINDOW_MS, // Rule 4 semantic-catch window is a fixed 24 h constant
-  );
-  if (resolved.index.ttlMs < maxRuleWindowMs) {
-    throw new Error(
-      `Alert index TTL (${Math.round(resolved.index.ttlMs / 60_000)} min) must be >= largest` +
-        ` rule window (${Math.round(maxRuleWindowMs / 60_000)} min).` +
-        ` Increase alerting.index.ttlMinutes or reduce rule window sizes.`,
-    );
+  if (resolved.enabled) {
+    const windowCandidates = [
+      resolved.rules.syntacticFailBurst.windowMs,
+      resolved.rules.writeFailSpike.windowMs,
+      ...(resolved.rules.semanticCatchNoSyntacticFlag.enabled ? [SEMANTIC_CATCH_WINDOW_MS] : []),
+    ];
+    const maxRuleWindowMs = Math.max(...windowCandidates);
+    if (resolved.index.ttlMs < maxRuleWindowMs) {
+      throw new Error(
+        `Alert index TTL (${Math.round(resolved.index.ttlMs / 60_000)} min) must be >= largest` +
+          ` rule window (${Math.round(maxRuleWindowMs / 60_000)} min).` +
+          ` Increase alerting.index.ttlMinutes or reduce rule window sizes.`,
+      );
+    }
   }
 
   return resolved;
