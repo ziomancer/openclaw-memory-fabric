@@ -375,7 +375,7 @@ function checkContentTypes(values: string[], acc: CheckAccumulator): void {
   }
   for (const v of values) {
     // TYPE-003: large base64-encoded blobs (>= 500 chars, pure base64)
-    if (v.length >= 500 && /^[A-Za-z0-9+/]{500,}={0,2}$/.test(v)) {
+    if (v.length >= 500 && /^[A-Za-z0-9+/\-_]{500,}={0,2}$/.test(v)) {
       addBlock(acc, "TYPE-003", "TYPE-003: large base64-encoded payload in field value");
       break;
     }
