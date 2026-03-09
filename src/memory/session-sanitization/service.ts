@@ -1475,7 +1475,7 @@ export async function processMcpToolResult(params: {
   if (!mcpCfg.enabled) {
     // Feature disabled — pass through without sanitization.
     return {
-      trusted: false,
+      trusted: true,
       safe: true,
       structuredResult:
         params.rawResult !== null && typeof params.rawResult === "object"
