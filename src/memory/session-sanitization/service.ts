@@ -176,7 +176,7 @@ async function gatedAudit(
 const sessionFrequencyState = new Map<string, SessionSuspicionState>();
 
 function buildAgentSessionKey(agentId: string, sessionId: string): string {
-  return `${agentId}:${sessionId}`;
+  return `${encodeURIComponent(agentId)}:${encodeURIComponent(sessionId)}`;
 }
 
 /**
