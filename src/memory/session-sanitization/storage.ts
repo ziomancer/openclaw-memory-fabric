@@ -410,6 +410,11 @@ export async function deleteSessionMemoryArtifacts(params: {
 }): Promise<void> {
   const sessionId = params.sessionId?.trim();
   if (!sessionId) {
+    // No sessionId — delete all artifact directories for this agent.
+    await fs.rm(resolveSessionMemoryBaseDir(params.agentId), {
+      recursive: true,
+      force: true,
+    });
     return;
   }
   await Promise.all([
