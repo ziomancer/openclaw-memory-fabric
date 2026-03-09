@@ -1,4 +1,7 @@
 import type { SessionManager } from "@mariozechner/pi-coding-agent";
+import type { OpenClawConfig } from "../config/config.js";
+import { toCanonicalInboundMessageHookContext } from "../hooks/message-hook-mappers.js";
+import { queueSessionSanitizationWrite } from "../memory/session-sanitization/service.js";
 import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
 import {
   applyInputProvenanceToUserMessage,
@@ -22,6 +25,8 @@ export function guardSessionManager(
   opts?: {
     agentId?: string;
     sessionKey?: string;
+    sessionId?: string;
+    cfg?: OpenClawConfig;
     inputProvenance?: InputProvenance;
     allowSyntheticToolResults?: boolean;
     allowedToolNames?: Iterable<string>;
@@ -32,14 +37,32 @@ export function guardSessionManager(
   }
 
   const hookRunner = getGlobalHookRunner();
-  const beforeMessageWrite = hookRunner?.hasHooks("before_message_write")
-    ? (event: { message: import("@mariozechner/pi-agent-core").AgentMessage }) => {
-        return hookRunner.runBeforeMessageWrite(event, {
-          agentId: opts?.agentId,
-          sessionKey: opts?.sessionKey,
-        });
-      }
-    : undefined;
+  const hasSanitization = !!(opts?.cfg && opts?.agentId && opts?.sessionId);
+  const hasHooks = hookRunner?.hasHooks("before_message_write") ?? false;
+  const beforeMessageWrite =
+    hasSanitization || hasHooks
+      ? (event: { message: import("@mariozechner/pi-agent-core").AgentMessage }) => {
+          const result =
+            hasHooks && hookRunner
+              ? hookRunner.runBeforeMessageWrite(event, {
+                  agentId: opts?.agentId,
+                  sessionKey: opts?.sessionKey,
+                })
+              : undefined;
+          if (hasSanitization) {
+            const canonical = toCanonicalInboundMessageHookContext(event.message);
+            if (canonical) {
+              queueSessionSanitizationWrite({
+                cfg: opts!.cfg!,
+                agentId: opts!.agentId!,
+                sessionId: opts!.sessionId,
+                canonical,
+              });
+            }
+          }
+          return result;
+        }
+      : undefined;
 
   const transform = hookRunner?.hasHooks("tool_result_persist")
     ? // oxlint-disable-next-line typescript/no-explicit-any
