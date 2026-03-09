@@ -114,7 +114,12 @@ function measureNestingDepth(obj: unknown, depth = 0): number {
     if (children.length === 0) {
       return depth;
     }
-    return Math.max(...children.map((child) => measureNestingDepth(child, depth + 1)));
+    let maxDepth = depth;
+    for (const child of children) {
+      const childDepth = measureNestingDepth(child, depth + 1);
+      if (childDepth > maxDepth) maxDepth = childDepth;
+    }
+    return maxDepth;
   }
   return depth;
 }
