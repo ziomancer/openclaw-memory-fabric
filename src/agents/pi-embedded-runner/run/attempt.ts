@@ -66,7 +66,7 @@ import {
 import { subscribeEmbeddedPiSession } from "../../pi-embedded-subscribe.js";
 import { createPreparedEmbeddedPiSettingsManager } from "../../pi-project-settings.js";
 import { applyPiAutoCompactionGuard } from "../../pi-settings.js";
-import { toClientToolDefinitions } from "../../pi-tool-definition-adapter.js";
+import { toClientToolDefinitions, wrapMcpToolDefinitions } from "../../pi-tool-definition-adapter.js";
 import { createOpenClawCodingTools, resolveToolLoopDetectionConfig } from "../../pi-tools.js";
 import { resolveSandboxContext } from "../../sandbox.js";
 import { resolveSandboxRuntimeStatus } from "../../sandbox/runtime-status.js";
@@ -1146,10 +1146,17 @@ export async function runEmbeddedAttempt(
       // Get hook runner early so it's available when creating tools
       const hookRunner = getGlobalHookRunner();
 
-      const { builtInTools, customTools } = splitSdkTools({
+      const { builtInTools, customTools: rawDefs } = splitSdkTools({
         tools,
         sandboxEnabled: !!sandbox?.enabled,
       });
+      const customTools = params.config
+        ? wrapMcpToolDefinitions(rawDefs, {
+            cfg: params.config,
+            agentId: sessionAgentId,
+            sessionId: params.sessionId,
+          })
+        : rawDefs;
 
       // Add client tools (OpenResponses hosted tools) to customTools
       let clientToolCallDetected: { name: string; params: Record<string, unknown> } | null = null;

@@ -90,6 +90,7 @@ import {
   createSystemPromptOverride,
 } from "./system-prompt.js";
 import { collectAllowedToolNames } from "./tool-name-allowlist.js";
+import { wrapMcpToolDefinitions } from "../pi-tool-definition-adapter.js";
 import { splitSdkTools } from "./tool-split.js";
 import type { EmbeddedPiCompactResult } from "./types.js";
 import { describeUnknownError, mapThinkingLevel } from "./utils.js";
@@ -628,10 +629,17 @@ export async function compactEmbeddedPiSessionDirect(
         await resourceLoader.reload();
       }
 
-      const { builtInTools, customTools } = splitSdkTools({
+      const { builtInTools, customTools: rawDefs } = splitSdkTools({
         tools,
         sandboxEnabled: !!sandbox?.enabled,
       });
+      const customTools = params.config
+        ? wrapMcpToolDefinitions(rawDefs, {
+            cfg: params.config,
+            agentId: sessionAgentId,
+            sessionId: params.sessionId,
+          })
+        : rawDefs;
 
       const { session } = await createAgentSession({
         cwd: effectiveWorkspace,
