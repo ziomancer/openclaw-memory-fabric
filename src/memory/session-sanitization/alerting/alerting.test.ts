@@ -86,7 +86,7 @@ afterEach(() => {
 describe("resolveAlertingConfig", () => {
   it("applies correct defaults", () => {
     const cfg = resolveAlertingConfig({});
-    expect(cfg.enabled).toBe(true);
+    expect(cfg.enabled).toBe(false);
     expect(cfg.channels.webhook.url).toBeNull();
     expect(cfg.channels.webhook.secret).toBeNull();
     expect(cfg.channels.webhook.retries).toBe(2);

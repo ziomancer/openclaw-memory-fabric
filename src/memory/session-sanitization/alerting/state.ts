@@ -55,14 +55,14 @@ const dedupState = new Map<string, number>();
 
 /** Build the dedup fingerprint for an alert. */
 export function buildDedupKey(ruleId: string, agentId: string, sessionId: string | null): string {
-  return `${ruleId}:${agentId}:${sessionId ?? "cross"}`;
+  return `${ruleId}:${encodeURIComponent(agentId)}:${sessionId !== null ? encodeURIComponent(sessionId) : "cross"}`;
 }
 
 /** Returns true if an alert with this key fired within the suppression window. */
 export function isDeduped(key: string, windowMs: number, now: number): boolean {
-export function buildDedupKey(ruleId: string, agentId: string, sessionId: string | null): string {
-  return `${ruleId}:${encodeURIComponent(agentId)}:${sessionId !== null ? encodeURIComponent(sessionId) : "cross"}`;
-}
+  const last = dedupState.get(key);
+  if (last === undefined) return false;
+  if (now - last >= windowMs) {
     dedupState.delete(key);
     return false;
   }

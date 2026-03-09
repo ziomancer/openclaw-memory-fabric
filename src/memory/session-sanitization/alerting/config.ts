@@ -34,13 +34,13 @@ export function resolveAlertingConfig(cfg: OpenClawConfig | undefined): Resolved
   const raw = cfg?.alerting;
   const mcp = resolveSessionSanitizationMcpConfig(cfg);
   const resolved: ResolvedAlertingConfig = {
-    enabled: raw?.enabled !== false,
+    enabled: raw?.enabled === true,
     channels: {
       webhook: {
         url: raw?.channels?.webhook?.url ?? null,
         secret: raw?.channels?.webhook?.secret ?? null,
         retries: raw?.channels?.webhook?.retries ?? 2,
-    enabled: raw?.enabled === true,
+        retryDelayMs: raw?.channels?.webhook?.retryDelayMs ?? 1000,
         timeoutMs: raw?.channels?.webhook?.timeoutMs ?? 5000,
       },
     },
